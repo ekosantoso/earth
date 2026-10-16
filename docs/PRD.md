@@ -236,8 +236,8 @@ One page, no menus, dark theme (colours from `stitch-prompts.md`):
 
 ```
 🔥 EarthGuard — "Is it burning now? When is the fire season? Is this year worse than usual?"
-[ Place: 📍 Riau, Indonesia ▾ ]
-┌ Right now: 0.5× normal ┐ ┌ Fire season: Jun – Aug ┐ ┌ Worst year: 2014 (3.6×) ┐
+[ Place: 🏳️ Indonesia ▾ ]   (default)
+┌ Right now: 7.3× normal ┐ ┌ Fire season: Aug – Oct ┐ ┌ Worst year: 2015 (3.1×) ┐
 > Summary: now · hottest parts · smoke · season · worst year
 🗺️ Hotspots and smoke right now   [Photo + smoke | Photo | Dark map]
    map + caption + ▸ list of latest hotspots (CSV)

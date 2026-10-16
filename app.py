@@ -26,7 +26,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-DEFAULT_PLACE = "province:IDN-492"  # Riau, Indonesia
+DEFAULT_PLACE = "country:Indonesia"
 
 # ---- 0. pick a place --------------------------------------------------------------------
 st.title("🔥 EarthGuard")
