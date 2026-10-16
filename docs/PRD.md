@@ -98,6 +98,7 @@ The 2026 judging criteria are published Nov 13. Past years' criteria were **Impa
 - **Live map**: hotspots of the last 7 days + today, **only those inside the chosen place**, drawn on the newest NASA satellite photo, with an optional **smoke (aerosol) layer**. Background choice: *Photo + smoke* / *Photo* / *Dark map*.
 - **Smoke sentence**: share of the place covered by haze, and the thickest provinces.
 - CSV download of the live hotspots.
+- **Globe 3D view** (pydeck `_GlobeView`): carbon monoxide (smoke gas) around the whole Earth from NASA AIRS, last 4 days combined (newest wins), recoloured blue → green → yellow → red like NASA *Eyes on the Earth*, with country borders and the place's hotspots on top.
 - Deployment to Streamlit Community Cloud.
 
 ### Could-have
@@ -133,6 +134,7 @@ Downloads need no login. Each zip holds one CSV per country, e.g. `modis/2015/mo
 | 3 | **FIRMS Near Real-Time**: `VIIRS_NOAA20_NRT`, `VIIRS_NOAA21_NRT`, `MODIS_NRT` | FIRMS Area API, free `MAP_KEY`, ≤ 5 days per request, `DATE` = first day of the range, dates in **UTC** | Live hotspots; "right now × normal" |
 | 4 | **NASA GIBS** true colour: `MODIS_Terra_CorrectedReflectance_TrueColor`, `VIIRS_NOAA20_CorrectedReflectance_TrueColor` | GIBS WMS (EPSG:3857), no key | Satellite photo behind the live map |
 | 5 | **NASA GIBS** aerosol: `MODIS_Terra_Aerosol_Optical_Depth_3km`, `MODIS_Aqua_Aerosol_Optical_Depth_3km`, colormap `MODIS_VIIRS_AOD.xml` | GIBS WMS + colormap XML | Smoke sentence and smoke layer |
+| 6 | **NASA GIBS** carbon monoxide: `AIRS_L2_Carbon_Monoxide_500hPa_Volume_Mixing_Ratio_Day/_Night` (AIRS on Aqua), colormap `AIRS_Carbon_Monoxide_Volume_Mixing_Ratio.xml` | GIBS WMS (EPSG:4326, whole world) | **Globe 3D** view, like NASA *Eyes on the Earth* |
 
 #### Non-NASA supporting data
 

@@ -38,9 +38,9 @@ THICK = 1.0           # AOD at or above this = thick smoke
 
 
 @st.cache_data(ttl=24 * 3600)
-def _colormap() -> dict[int, float]:
-    """Colour (packed as one number) -> AOD value (the lower edge of its range)."""
-    xml = requests.get(COLORMAP_URL, timeout=60).text
+def colormap(url: str = COLORMAP_URL) -> dict[int, float]:
+    """A GIBS colour legend: colour (packed as one number) -> value (lower edge of its range)."""
+    xml = requests.get(url, timeout=60).text
     table = {}
     for entry in re.findall(r"<ColorMapEntry[^>]*>", xml):
         rgb = re.search(r'rgb="(\d+),(\d+),(\d+)"', entry)
@@ -49,6 +49,15 @@ def _colormap() -> dict[int, float]:
             r, g, b = map(int, rgb.groups())
             table[(r << 16) | (g << 8) | b] = float(value.group(1))
     return table
+
+
+def to_values(png: bytes, lookup: dict[int, float]) -> np.ndarray:
+    """A GIBS picture -> numbers, using its colour legend. NaN where there is no measurement."""
+    pixels = np.asarray(Image.open(io.BytesIO(png)).convert("RGBA")).astype(np.int32)
+    packed = (pixels[..., 0] << 16) | (pixels[..., 1] << 8) | pixels[..., 2]
+    values = np.vectorize(lambda colour: lookup.get(colour, np.nan), otypes=[float])(packed)
+    values[pixels[..., 3] == 0] = np.nan   # transparent = no measurement (cloud, night, gap)
+    return values
 
 
 def _download(layer: str, day: date, bounds: list[float]) -> np.ndarray:
@@ -63,12 +72,7 @@ def _download(layer: str, day: date, bounds: list[float]) -> np.ndarray:
     })
     response = requests.get(url, timeout=90)
     response.raise_for_status()
-    pixels = np.asarray(Image.open(io.BytesIO(response.content)).convert("RGBA")).astype(np.int32)
-    packed = (pixels[..., 0] << 16) | (pixels[..., 1] << 8) | pixels[..., 2]
-    lookup = _colormap()
-    aod = np.vectorize(lambda colour: lookup.get(colour, np.nan), otypes=[float])(packed)
-    aod[pixels[..., 3] == 0] = np.nan   # transparent = no measurement (cloud, night, gap)
-    return aod
+    return to_values(response.content, colormap())
 
 
 @st.cache_data(ttl=3600, show_spinner="Measuring smoke from NASA aerosol data…")

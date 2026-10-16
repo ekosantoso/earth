@@ -48,6 +48,7 @@ earth/                                (repo root)
 │   ├── firms_live.py             #2  FIRMS NRT API client (parallel requests, UTC days)
 │   ├── satellite.py              #5  newest GIBS true-colour photo (composite)
 │   ├── smoke.py                  #5  GIBS aerosol → AOD numbers → smoke sentence + layer
+│   ├── co.py                     #5  GIBS AIRS carbon monoxide → whole-Earth picture for the globe
 │   ├── maps.py                   #5  pydeck map: pictures + hotspots (or grid cells if many)
 │   ├── charts.py                 #5  Plotly: calendar heatmap, harmonization lines
 │   └── ui.py                     #6  week numbers → words ("early Aug")
@@ -95,6 +96,7 @@ Short descriptions are given here. The code is the full explanation, and every m
 - **Photo**: GIBS WMS in EPSG:3857 for the place's area + 50% margin. Photos: yesterday NOAA-20 → today Terra → today NOAA-20, newest non-black pixel wins.
 - **Smoke**: GIBS AOD PNGs (Aqua/Terra, today then yesterday). Colours → AOD via `MODIS_VIIRS_AOD.xml`. Sampled at province cell centres; haze ≥ 0.5, thick ≥ 1.0; a yellow-to-red transparent overlay for the map.
 - **Sending images**: each picture is encoded as a **data URL** (`data:image/jpeg;base64,…`) and passed to pydeck **wrapped in double quotes**, so pydeck treats it as plain text. No files, no web addresses: works locally and on Streamlit Community Cloud.
+- **Globe 3D**: `co.world_map` downloads AIRS CO (Day + Night, last 4 days) for the whole world in EPSG:4326, turns colours into ppbv with the GIBS colormap, recolours 60–180 ppbv blue → dark red, and `maps.globe_map` shows it on pydeck's experimental `_GlobeView` with Natural Earth country borders (the globe has no basemap) and the hotspot dots.
 - **Map**: `BitmapLayer`s (photo, smoke), the place's rectangle, then hotspots. Hotspots in the same ~1 km square become **one dot at their average position** (coarser squares, 5/11/55 km, only if there would be more than 35,000 dots). Dots have a fixed size **in pixels**, so zooming in spreads them apart. Colour and size are computed in the browser from a confidence number (deck.gl expressions), which keeps Indonesia's map at about 4 MB instead of 26 MB.
 
 ### 3.6 Lessons learned while building the reference (teach these!)

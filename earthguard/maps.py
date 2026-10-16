@@ -7,6 +7,8 @@ import math
 import numpy as np
 import pandas as pd
 import pydeck as pdk
+import requests
+import streamlit as st
 from PIL import Image
 
 LEVELS = ["low", "nominal", "high"]
@@ -85,6 +87,39 @@ def to_data_url(picture: Image.Image, fmt: str = "JPEG") -> str:
     buffer = io.BytesIO()
     picture.save(buffer, format=fmt, **({"quality": 85} if fmt == "JPEG" else {}))
     return f"data:image/{fmt.lower()};base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
+GLOBE_ZOOM = 1.6
+BORDERS_URL = ("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/"
+               "ne_110m_admin_0_countries.geojson")   # Natural Earth, public domain
+
+
+@st.cache_data(ttl=7 * 24 * 3600)
+def _borders() -> dict:
+    """Country outlines for the globe (the globe has no map underneath, unlike the flat map)."""
+    return requests.get(BORDERS_URL, timeout=60).json()
+
+
+def globe_map(hotspots: pd.DataFrame | None, bbox: tuple, picture: str | None) -> pdk.Deck:
+    """A 3D globe you can spin: a whole-Earth picture (e.g. carbon monoxide), country borders
+    and the hotspots on top. deck.gl calls this view "_GlobeView" (still experimental)."""
+    layers = []
+    if picture:   # a picture of the whole Earth in plain longitude/latitude
+        layers.append(pdk.Layer("BitmapLayer", data=None, image=f'"{picture}"',
+                                bounds=[-180, -90, 180, 90]))
+    layers.append(pdk.Layer("GeoJsonLayer", _borders(), stroked=True, filled=False,
+                            get_line_color=[20, 20, 20, 220], line_width_min_pixels=1))
+    if hotspots is not None and len(hotspots):
+        layers.append(_spots_layer(hotspots))
+    view = view_for(bbox)
+    return pdk.Deck(
+        layers=layers, views=[pdk.View(type="_GlobeView", controller=True)],
+        # Start far enough away to see the whole globe, turned towards the chosen place.
+        initial_view_state=pdk.ViewState(longitude=view.longitude, latitude=view.latitude,
+                                         zoom=GLOBE_ZOOM),
+        map_provider=None, map_style=None, parameters={"cull": True},
+        tooltip={"html": "<b>{n}</b> hotspot(s) here<br>{lat}, {lon}<br>newest: {t} UTC"},
+    )
 
 
 def hotspot_map(hotspots: pd.DataFrame, bbox: tuple,

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import numpy as np
 import streamlit as st
 
-from earthguard import burn_calendar, charts, data, firms_live, maps, now, satellite, smoke, ui
+from earthguard import burn_calendar, charts, co, data, firms_live, maps, now, satellite, smoke, ui
 from earthguard.config import DATA_CREDIT, DISCLAIMER, ROOT
 
 st.set_page_config(page_title="EarthGuard", page_icon="🔥", layout="wide")
@@ -131,31 +131,50 @@ st.markdown("> " + "  \n> ".join(story))
 
 # ---- 3. live map -------------------------------------------------------------------------
 st.subheader("🗺️ Hotspots and smoke right now")
-# Background: a real NASA satellite photo, so you can see smoke plumes next to the hotspots,
-# optionally with the measured smoke (aerosol) painted on top.
-WITH_SMOKE, PHOTO, DARK = "Photo + smoke", "Photo", "Dark map"
-background = st.segmented_control("Background", [WITH_SMOKE, PHOTO, DARK], default=WITH_SMOKE)
-pictures, photo_note = [], ""
-if background in (WITH_SMOKE, PHOTO):
+FLAT, GLOBE = "Flat map", "Globe 3D (carbon monoxide)"
+view = st.segmented_control("View", [FLAT, GLOBE], default=FLAT)
+
+if view == GLOBE:
+    # The whole Earth with the smoke gas CO from NASA AIRS, like NASA's "Eyes on the Earth".
     try:
-        image, bounds, today_share = satellite.newest_photo(bbox, today_utc)
-        pictures.append(maps.photo_layer(image, bounds))
-        photo_note = (f" Photo: NASA satellites — {today_share:.0%} of this view was photographed "
-                      "today, the rest yesterday afternoon. Grey-brown haze is smoke; "
-                      "bright white is cloud.")
-    except Exception as error:  # no photo is not a reason to hide the hotspots
-        photo_note = f" (Satellite photo unavailable: {error})"
-if background == WITH_SMOKE and aod is not None:
-    pictures.append(maps.photo_layer(smoke.overlay(aod, smoke_bounds), smoke_bounds))
-    photo_note += (" Yellow-to-red shading = smoke/haze measured by NASA (aerosol); "
-                   "no shading = clean air or not measured (clouds).")
+        co_picture, co_period, co_share = co.world_map(today_utc)
+        co_note = (f"Carbon monoxide (CO) at ~5.5 km height (500 hPa, ~18,000 ft) from AIRS on "
+                   f"NASA's Aqua satellite, {co_period}. Blue/green = clean air, yellow → dark red "
+                   f"= more CO, mostly smoke from fires (scale {co.LOW:.0f}–{co.HIGH:.0f}+ ppbv). "
+                   f"Dark grey = no measurement. Drag to spin the globe, scroll to zoom.")
+    except Exception as error:  # no CO data is not a reason to hide the globe
+        co_picture, co_note = None, f"(Carbon monoxide data unavailable: {error})"
+    st.pydeck_chart(maps.globe_map(live, bbox, co_picture), height=560)
+    st.caption(co_note + (f" Dots: {len(live):,} hotspots in {region['name']} (last {window} "
+                          "+ today)." if live is not None else ""))
+else:
+    # Background: a real NASA satellite photo, so you can see smoke plumes next to the hotspots,
+    # optionally with the measured smoke (aerosol) painted on top.
+    WITH_SMOKE, PHOTO, DARK = "Photo + smoke", "Photo", "Dark map"
+    background = st.segmented_control("Background", [WITH_SMOKE, PHOTO, DARK],
+                                      default=WITH_SMOKE)
+    pictures, photo_note = [], ""
+    if background in (WITH_SMOKE, PHOTO):
+        try:
+            image, bounds, today_share = satellite.newest_photo(bbox, today_utc)
+            pictures.append(maps.photo_layer(image, bounds))
+            photo_note = (f" Photo: NASA satellites — {today_share:.0%} of this view was "
+                          "photographed today, the rest yesterday afternoon. Grey-brown haze is "
+                          "smoke; bright white is cloud.")
+        except Exception as error:  # no photo is not a reason to hide the hotspots
+            photo_note = f" (Satellite photo unavailable: {error})"
+    if background == WITH_SMOKE and aod is not None:
+        pictures.append(maps.photo_layer(smoke.overlay(aod, smoke_bounds), smoke_bounds))
+        photo_note += (" Yellow-to-red shading = smoke/haze measured by NASA (aerosol); "
+                       "no shading = clean air or not measured (clouds).")
+    if live is not None:
+        st.pydeck_chart(maps.hotspot_map(live, bbox, pictures), height=520)
+        today_count = len(live) - len(finished)
+        st.caption(f"{len(finished):,} hotspots in the last {window} + {today_count:,} today so "
+                   "far (UTC; new satellite passes appear within a few hours). "
+                   + maps.legend(live) + photo_note)
 
 if live is not None:
-    st.pydeck_chart(maps.hotspot_map(live, bbox, pictures), height=520)
-    today_count = len(live) - len(finished)
-    st.caption(f"{len(finished):,} hotspots in the last {window} + {today_count:,} today so far "
-               "(UTC; new satellite passes appear within a few hours). "
-               + maps.legend(live) + photo_note)
     with st.expander("List of the latest hotspots"):
         latest = live.sort_values(["acq_date", "acq_time"], ascending=False)
         columns = ["time_utc", "latitude", "longitude", "sensor", "confidence_level", "frp"]
