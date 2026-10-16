@@ -9,15 +9,14 @@ import pandas as pd
 import pydeck as pdk
 from PIL import Image
 
-CONFIDENCE_COLORS = {
-    "high": [239, 68, 68, 220],      # red
-    "nominal": [249, 115, 22, 200],  # orange
-    "low": [245, 158, 11, 140],      # amber
-}
-# Above this many hotspots (e.g. the whole world) we draw grid cells instead of single points,
-# otherwise the browser has to download and draw hundreds of thousands of dots.
-MAX_POINTS = 30_000
-CELL_DEG = 0.5
+LEVELS = ["low", "nominal", "high"]
+LEVEL_COLORS = [[245, 158, 11, 170], [249, 115, 22, 210], [239, 68, 68, 235]]  # amber, orange, red
+
+# Sending every hotspot to the browser can be 25+ MB (Indonesia has 100k+ in a busy week).
+# So hotspots in the same small grid square become ONE dot at their average position. We use
+# the same ~1 km grid as the history; only if there are still too many dots, a coarser one.
+SPOT_GRIDS = [(0.01, "~1 km"), (0.05, "~5 km"), (0.1, "~11 km"), (0.5, "~55 km")]
+MAX_SPOTS = 35_000
 
 
 def view_for(bbox: tuple) -> pdk.ViewState:
@@ -27,38 +26,48 @@ def view_for(bbox: tuple) -> pdk.ViewState:
     return pdk.ViewState(longitude=(west + east) / 2, latitude=(south + north) / 2, zoom=zoom)
 
 
+def merge_spots(hotspots: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    """One row per grid square: average position, number of hotspots, highest confidence,
+    newest time. Returns the table and the grid size in words (e.g. "~1 km")."""
+    level = hotspots["confidence_level"].map({name: i for i, name in enumerate(LEVELS)})
+    hotspots = hotspots.assign(level=level.fillna(1).astype(int))
+    for size, words in SPOT_GRIDS:
+        spots = (hotspots.assign(x=np.floor(hotspots["longitude"] / size),
+                                 y=np.floor(hotspots["latitude"] / size))
+                         .groupby(["x", "y"])
+                         .agg(longitude=("longitude", "mean"), latitude=("latitude", "mean"),
+                              hotspots=("latitude", "size"), level=("level", "max"),
+                              latest=("time_utc", "max"))
+                         .reset_index(drop=True))
+        if len(spots) <= MAX_SPOTS:
+            break
+    return spots, words
+
+
 def legend(hotspots: pd.DataFrame) -> str:
-    if len(hotspots) > MAX_POINTS:
-        return (f"Too many to draw one by one: each dot is a {CELL_DEG}° area, "
-                "bigger and redder = more hotspots.")
-    return ("Red = high confidence, orange = nominal, amber = low. "
-            "Bigger dots = MODIS (1 km), smaller = VIIRS (375 m).")
+    _, words = merge_spots(hotspots)
+    return (f"Each dot = the hotspots inside one {words} square, at their exact average "
+            "position; dots keep their size when you zoom. Red = high confidence, "
+            "orange = nominal, amber = low; bigger dot = more hotspots in that square.")
 
 
-def _points_layer(hotspots: pd.DataFrame) -> pdk.Layer:
-    points = hotspots.assign(
-        color=hotspots["confidence_level"].map(CONFIDENCE_COLORS).apply(
-            lambda c: c if isinstance(c, list) else [148, 163, 184, 120]),
-        radius=hotspots["sensor"].map(lambda s: 1000 if s == "MODIS" else 375),
-    )
-    # A thin dark outline keeps the dots visible on top of bright clouds in the satellite photo.
-    return pdk.Layer("ScatterplotLayer", points, get_position=["longitude", "latitude"],
-                     get_fill_color="color", get_radius="radius", radius_min_pixels=4,
-                     radius_max_pixels=12, stroked=True, get_line_color=[0, 0, 0, 220],
+def _spots_layer(hotspots: pd.DataFrame) -> pdk.Layer:
+    spots, _ = merge_spots(hotspots)
+    # Keep the data small: short column names, rounded numbers, colour and size worked out in
+    # the browser from the confidence level (0, 1, 2) instead of sent for every dot.
+    small = pd.DataFrame({
+        "lon": spots["longitude"].round(3), "lat": spots["latitude"].round(3),
+        "n": spots["hotspots"], "c": spots["level"],
+        "t": spots["latest"].astype(str).str[5:],          # "2026-10-15 06:12" -> "10-15 06:12"
+    })
+    low, nominal, high = LEVEL_COLORS
+    colour = f"c == 2 ? {high} : (c == 1 ? {nominal} : {low})"
+    # Radius in PIXELS: zooming in spreads the dots apart instead of making them bigger.
+    # A thin dark outline keeps them visible on top of bright clouds in the satellite photo.
+    return pdk.Layer("ScatterplotLayer", small, get_position=["lon", "lat"],
+                     get_fill_color=colour, get_radius="n > 15 ? 7 : (n > 3 ? 5 : 3.5)",
+                     radius_units="'pixels'", stroked=True, get_line_color=[0, 0, 0, 200],
                      line_width_min_pixels=1, pickable=True)
-
-
-def _cells_layer(hotspots: pd.DataFrame) -> pdk.Layer:
-    cells = (hotspots.assign(longitude=(np.floor(hotspots["longitude"] / CELL_DEG) + 0.5) * CELL_DEG,
-                             latitude=(np.floor(hotspots["latitude"] / CELL_DEG) + 0.5) * CELL_DEG)
-                     .groupby(["longitude", "latitude"]).size().rename("hotspots").reset_index())
-    share = (np.log1p(cells["hotspots"]) / np.log1p(cells["hotspots"].max())).to_numpy()
-    cells["color"] = [[239, int(200 - 130 * s), 68, int(90 + 150 * s)] for s in share]
-    cells["radius"] = 8000 + 22000 * share
-    return pdk.Layer("ScatterplotLayer", cells, get_position=["longitude", "latitude"],
-                     get_fill_color="color", get_radius="radius", radius_min_pixels=2,
-                     stroked=True, get_line_color=[0, 0, 0, 160], line_width_min_pixels=1,
-                     pickable=True)
 
 
 def photo_layer(image: str, bounds: list[float]) -> pdk.Layer:
@@ -84,15 +93,13 @@ def hotspot_map(hotspots: pd.DataFrame, bbox: tuple,
     west, south, east, north = bbox
     outline = pd.DataFrame({"path": [[[west, south], [east, south], [east, north],
                                       [west, north], [west, south]]]})
-    many = len(hotspots) > MAX_POINTS
     layers = [
         *(pictures or []),
         pdk.Layer("PathLayer", outline, get_path="path", get_color=[255, 255, 255, 180],
                   width_min_pixels=1),
-        _cells_layer(hotspots) if many else _points_layer(hotspots),
+        _spots_layer(hotspots),
     ]
-    tooltip = ({"html": "<b>{hotspots}</b> hotspots in this area"} if many else
-               {"html": "<b>{sensor}</b><br>{time_utc} UTC<br>{latitude}, {longitude}<br>"
-                        "confidence: {confidence_level}<br>FRP: {frp} MW"})
+    tooltip = {"html": "<b>{n}</b> hotspot(s) here<br>{lat}, {lon}<br>newest: {t} UTC<br>"
+                       "confidence level: {c} (0 low · 1 nominal · 2 high)"}
     return pdk.Deck(layers=layers, initial_view_state=view_for(bbox), tooltip=tooltip,
                     map_style=pdk.map_styles.CARTO_DARK)

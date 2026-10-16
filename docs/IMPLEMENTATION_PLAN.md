@@ -95,7 +95,7 @@ Short descriptions are given here. The code is the full explanation, and every m
 - **Photo**: GIBS WMS in EPSG:3857 for the place's area + 50% margin. Photos: yesterday NOAA-20 → today Terra → today NOAA-20, newest non-black pixel wins.
 - **Smoke**: GIBS AOD PNGs (Aqua/Terra, today then yesterday). Colours → AOD via `MODIS_VIIRS_AOD.xml`. Sampled at province cell centres; haze ≥ 0.5, thick ≥ 1.0; a yellow-to-red transparent overlay for the map.
 - **Sending images**: each picture is encoded as a **data URL** (`data:image/jpeg;base64,…`) and passed to pydeck **wrapped in double quotes**, so pydeck treats it as plain text. No files, no web addresses: works locally and on Streamlit Community Cloud.
-- **Map**: `BitmapLayer`s (photo, smoke), the place's rectangle, then hotspots. Above 30,000 hotspots they are drawn as 0.5° grid cells.
+- **Map**: `BitmapLayer`s (photo, smoke), the place's rectangle, then hotspots. Hotspots in the same ~1 km square become **one dot at their average position** (coarser squares, 5/11/55 km, only if there would be more than 35,000 dots). Dots have a fixed size **in pixels**, so zooming in spreads them apart. Colour and size are computed in the browser from a confidence number (deck.gl expressions), which keeps Indonesia's map at about 4 MB instead of 26 MB.
 
 ### 3.6 Lessons learned while building the reference (teach these!)
 | Problem we hit | Cause | Fix |
@@ -109,6 +109,7 @@ Short descriptions are given here. The code is the full explanation, and every m
 | Satellite photo did not show with pydeck `TileLayer` or a Mapbox style | Not supported by pydeck inside Streamlit | One `BitmapLayer` image per place |
 | `data:` image URLs crashed the map | pydeck turns plain strings into JavaScript expressions | Wrap the data URL in double quotes (`image=f'"{url}"'`) |
 | Photo worked locally but **not on Streamlit Cloud** | Earlier version saved images in a gitignored `static/` folder; Streamlit only serves `static/` if it exists at start-up, and app URLs differ behind the Cloud proxy | Send pictures as data URLs inside the map instead of files |
+| Map dots were big blobs that **grew when zooming** | More than 30,000 hotspots were grouped into 55 km circles sized in metres | Merge per ~1 km square at the exact average position, size dots in pixels, send compact data |
 | Black areas in today's photo | Satellite has not passed there yet | Composite newest pixels over yesterday's photo |
 | Code changes "not applied" | Streamlit keeps imported modules in memory | Restart the server after changing modules |
 
