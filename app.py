@@ -135,21 +135,18 @@ st.subheader("🗺️ Hotspots and smoke right now")
 # optionally with the measured smoke (aerosol) painted on top.
 WITH_SMOKE, PHOTO, DARK = "Photo + smoke", "Photo", "Dark map"
 background = st.segmented_control("Background", [WITH_SMOKE, PHOTO, DARK], default=WITH_SMOKE)
-# pydeck needs full web addresses (http://...), so add this app's address in front of paths.
-app_url = (st.context.url or "http://" + st.context.headers.get("host", "localhost:8501")).rstrip("/")
 pictures, photo_note = [], ""
 if background in (WITH_SMOKE, PHOTO):
     try:
-        path, bounds, today_share = satellite.newest_photo(bbox, today_utc)
-        pictures.append(maps.photo_layer(f"{app_url}/{path}", bounds))
+        image, bounds, today_share = satellite.newest_photo(bbox, today_utc)
+        pictures.append(maps.photo_layer(image, bounds))
         photo_note = (f" Photo: NASA satellites — {today_share:.0%} of this view was photographed "
                       "today, the rest yesterday afternoon. Grey-brown haze is smoke; "
                       "bright white is cloud.")
     except Exception as error:  # no photo is not a reason to hide the hotspots
         photo_note = f" (Satellite photo unavailable: {error})"
 if background == WITH_SMOKE and aod is not None:
-    pictures.append(maps.photo_layer(f"{app_url}/{smoke.overlay(aod, smoke_bounds)}",
-                                     smoke_bounds))
+    pictures.append(maps.photo_layer(smoke.overlay(aod, smoke_bounds), smoke_bounds))
     photo_note += (" Yellow-to-red shading = smoke/haze measured by NASA (aerosol); "
                    "no shading = clean air or not measured (clouds).")
 

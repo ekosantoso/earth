@@ -1,298 +1,222 @@
 # Implementation Plan — EarthGuard (Harmonization of MODIS and VIIRS Hot Spots)
 
-Companion to [PRD.md](PRD.md). Visual design: [stitch-prompts.md](stitch-prompts.md).
+Companion to [PRD.md](PRD.md). Updated 2026-10-16 to match the **teaching reference implementation** in this repo.
 
-> ⚠️ **Space Apps rule:** teams may not start working on the challenge before **Nov 14, 2026**. Everything in §5–§8 happens **during the event**. Before the event, the team only does the general learning and setup in §9. If anything is unclear, ask your Local Lead.
+> ⚠️ **Space Apps rule:** teams may not start working on the challenge before **Nov 14, 2026**. The code here is a coach's reference for teaching. At the event, students rebuild it themselves, using this plan (§6–§7) as a guide. Before the event they only do general learning and setup (§10).
 
 ---
 
 ## 1. Architecture
 
 ```
-          (run once at the event, on team laptops)
-┌──────────────────────── ETL (etl/) ────────────────────────┐
-│ FIRMS Country Yearly Summary .zip  ──►  clean  ──►  cell-days │
-│ (MODIS 2000–2025, VIIRS S-NPP 2012–2025)    (≈1 km grid, 1/day) │
-│                         │                                     │
-│                         ▼                                     │
-│            region × day × sensor  ──►  data/processed/*.parquet │
-└──────────────────────────────┬─────────────────────────────┘
-                               │ (small aggregated files, committed)
-┌──────────────────────────────▼─────────────────────────────┐
-│ Streamlit app (Streamlit Community Cloud)                     │
-│  earthguard/harmonize.py   ratio fit · apply · validate        │
-│  earthguard/burn_calendar.py  calendar · typical · unusual ·   │
-│                               critical periods                 │
-│  earthguard/charts.py · maps.py · firms_live.py (NRT API)      │
-│  pages/  calendar · unusual · harmonization · live_map ·       │
-│          stories · about                                       │
-└─────────────────────────────────────────────────────────────┘
+          ETL (run once, on a laptop: ~1 h download + ~6 min processing)
+┌───────────────────────────────────────────────────────────────────────┐
+│ FIRMS yearly zips (6.5 GB) ─► clean ─► cell-days (≈245 M) ─► per place │
+│                                                                       │
+│ data/processed/  monthly.parquet  weekly.parquet  regions.parquet     │
+│                  cell_provinces.parquet               (≈ 20 MB total) │
+└──────────────────────────────────┬────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────▼────────────────────────────────────┐
+│ app.py — ONE Streamlit page                                           │
+│                                                                       │
+│  history:  data.py ─► harmonize.py ─► burn_calendar.py ─► charts.py   │
+│  live:     firms_live.py (FIRMS API) ─► now.py (inside place, ×normal)│
+│  pictures: satellite.py (GIBS photo) · smoke.py (GIBS aerosol)        │
+│            └─► maps.py (pydeck); images sent inside the map as data URLs│
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-**Principle:** heavy work (gigabytes) happens **once** in the ETL. The deployed app reads only small aggregated files, so it stays fast and fits Streamlit Cloud's memory.
+**Principles**
+- The heavy work (gigabytes) happens **once** in the ETL. The app reads small tables only.
+- Every live part (FIRMS, GIBS) **fails gracefully**: a message instead of a crash, while the history part still works.
+- Everything slow is cached with `st.cache_data` (live data, photos, and smoke for 1 hour).
 
 ## 2. Repo structure & file ownership
 
-Each file has one owner (the role numbers match the team table in §4), so people do not overwrite each other's work in Git.
+Each file has one owner (role numbers as in §5), so students do not overwrite each other in Git.
 
 ```
-earthguard/                         (repo root)
-├── app.py                          #4  entry: st.navigation, theme, shared sidebar
-├── pages/
-│   ├── calendar.py                 #4  Burning Calendar
-│   ├── unusual.py                  #4  Unusual & Critical Periods
-│   ├── harmonization.py            #3  Harmonization (method & proof)
-│   ├── live_map.py                 #5  Live Map (should-have)
-│   ├── stories.py                  #6  Fire Season Stories (should-have)
-│   └── about.py                    #6  About the Data
+earth/                                (repo root)
+├── app.py                        #4  the one page: picker, cards, summary, map, calendar, expanders
 ├── earthguard/
-│   ├── config.py                   #1  constants: paths, thresholds, source names
-│   ├── aoi.py                      #2  region list, search, bounding boxes
-│   ├── harmonize.py                #3  fit ratios, apply, validate
-│   ├── burn_calendar.py            #3  calendar matrix, typical, unusual, critical
-│   ├── charts.py                   #5  Plotly figures (heatmap, profile, scatter…)
-│   ├── maps.py                     #5  pydeck layers
-│   ├── firms_live.py               #2  NRT API client (should-have)
-│   └── gibs.py                     #5  NASA GIBS image URLs (should-have)
+│   ├── config.py                 #1  every number of the method in one place
+│   ├── data.py                   #4  load tables, per-place analysis (cached)
+│   ├── harmonize.py              #3  ratios, harmonized series, leave-one-year-out validation
+│   ├── burn_calendar.py          #3  normal, unusual, fire season, worst year
+│   ├── now.py                    #3  live hotspots: inside the place, × normal, hottest parts
+│   ├── firms_live.py             #2  FIRMS NRT API client (parallel requests, UTC days)
+│   ├── satellite.py              #5  newest GIBS true-colour photo (composite)
+│   ├── smoke.py                  #5  GIBS aerosol → AOD numbers → smoke sentence + layer
+│   ├── maps.py                   #5  pydeck map: pictures + hotspots (or grid cells if many)
+│   ├── charts.py                 #5  Plotly: calendar heatmap, harmonization lines
+│   └── ui.py                     #6  week numbers → words ("early Aug")
 ├── etl/
-│   ├── download.py                 #2  fetch yearly zips
-│   ├── build_cell_days.py          #2  zip → cleaned cell-days per year
-│   └── build_regions.py            #2  cell → admin-1 mapping, region × day parquet
-├── content/stories/*.md            #6  story text
-├── data/
-│   ├── boundaries/                 #2  Natural Earth admin-0 / admin-1
-│   └── processed/                  #2  daily_regions.parquet, ratios.parquet (committed)
-├── tests/                          #3 + #1
-├── .streamlit/config.toml          #5  theme colors from Stitch
-├── .streamlit/secrets.toml         #2  FIRMS MAP_KEY (gitignored!)
-├── requirements.txt                #4
-├── LICENSE                         #1  Apache-2.0
-├── REFERENCES.md                   #6  every dataset + library + license
-└── README.md                       #1 + #6
+│   ├── download.py               #2  FIRMS yearly zips, 4 in parallel, resumable
+│   ├── build_cell_days.py        #2  zip → cleaned cell-days per sensor-year
+│   └── build_regions.py          #2  cell-days → place tables + cell→province lookup
+├── tests/                        #3 + #1  15 tests with made-up data where the answer is known
+├── data/processed/               #2  the only data the app needs (committed)
+├── .streamlit/config.toml        #5  theme colours
+├── .streamlit/secrets.toml       #2  FIRMS_MAP_KEY (gitignored!)
+├── REFERENCES.md                 #6  every dataset + library + license
+├── README.md, LICENSE            #1 + #6
+└── docs/                         PRD, this plan, Stitch prompts
 ```
 
-> Do **not** name a module `calendar.py` inside the `earthguard/` package. That name shadows Python's built-in `calendar` module. The page file is fine because it lives in `pages/`. Name the module `burn_calendar.py`.
+## 3. How each part works
 
-## 3. Core logic (reference snippets)
+Short descriptions are given here. The code is the full explanation, and every module starts with a plain-English docstring.
 
-These snippets are starting points written from the documented FIRMS formats. **Inspect one real zip first**, because file names and columns may differ slightly.
+### 3.1 ETL
+| Step | Script | What it does | Watch out |
+|---|---|---|---|
+| Download | `etl/download.py` | `https://firms.modaps.eosdis.nasa.gov/data/country/zips/{modis\|viirs-snpp}_{year}_all_countries.zip`, 4 in parallel, skips finished files | One connection is only ~0.6 MB/s |
+| Cell-days | `etl/build_cell_days.py` | Per country CSV inside the zip: keep `type == 0` and nominal/high confidence, snap to 0.01°, dedupe (cell, day) | pyarrow `read_csv` does not accept a function for `usecols`: read the header first |
+| Places | `etl/build_regions.py` | Pass 1: every 0.05° cell that ever burned → Natural Earth province (spatial join of cell centres). Pass 2: count per world/country/province × month/week, **one file at a time** | Loading all ≈245 M rows at once runs out of memory |
 
-### 3.1 `etl/build_cell_days.py`: zip → cell-days
-```python
-import zipfile
-from pathlib import Path
+### 3.2 Harmonization (`harmonize.py`)
+- `monthly_table` / `weekly_table`: MODIS and VIIRS cell-days per month/week. No rows means 0 fires. VIIRS before **20 Jan 2012** (including all of Jan 2012) is NaN, not 0.
+- `fit_ratios`: VIIRS ÷ MODIS per month of year, over overlap months where both sensors exist. Fallbacks: all months, then parent place.
+- `harmonize`: VIIRS ÷ ratio where VIIRS exists, MODIS otherwise.
+- `validate`: leave-one-year-out → R², median % error.
 
-import numpy as np
-import pandas as pd
+### 3.3 Calendar (`burn_calendar.py`)
+- `typical` = median; `times_typical`; `unusual` (3 rules); `critical_period` (5-week smoothed typical, ≥ 50% of peak, wraps around New Year); `worst_year`; `unusual_events`; `weeks_until`.
 
-GRID = 0.01  # degrees, ≈1.1 km at the equator, close to the MODIS pixel size
-COLS = ["latitude", "longitude", "acq_date", "confidence", "type"]
+### 3.4 Live (`firms_live.py`, `now.py`)
+- `recent_hotspots(bbox, days)`: requests `days` complete days + today, all sources in parallel. The FIRMS `DATE` parameter is the **first** day of the range, and dates are UTC.
+- `complete_days`: drops today (unfinished) before any comparison.
+- `now.locate` + `now.inside`: hotspot → province via `cell_provinces.parquet` → keep only hotspots inside the place.
+- `now.times_normal`: NOAA-20 only, cell-days ÷ ratio, compared with the typical week × days/7.
+- `now.hottest_parts`: top 3 provinces (country) or countries (world).
 
+### 3.5 Pictures (`satellite.py`, `smoke.py`, `maps.py`)
+- **Photo**: GIBS WMS in EPSG:3857 for the place's area + 50% margin. Photos: yesterday NOAA-20 → today Terra → today NOAA-20, newest non-black pixel wins.
+- **Smoke**: GIBS AOD PNGs (Aqua/Terra, today then yesterday). Colours → AOD via `MODIS_VIIRS_AOD.xml`. Sampled at province cell centres; haze ≥ 0.5, thick ≥ 1.0; a yellow-to-red transparent overlay for the map.
+- **Sending images**: each picture is encoded as a **data URL** (`data:image/jpeg;base64,…`) and passed to pydeck **wrapped in double quotes**, so pydeck treats it as plain text. No files, no web addresses: works locally and on Streamlit Community Cloud.
+- **Map**: `BitmapLayer`s (photo, smoke), the place's rectangle, then hotspots. Above 30,000 hotspots they are drawn as 0.5° grid cells.
 
-def clean(df: pd.DataFrame, sensor: str) -> pd.DataFrame:
-    if "type" in df:
-        df = df[df["type"] == 0]                                  # vegetation fires only
-    if sensor == "MODIS":
-        df = df[pd.to_numeric(df["confidence"], errors="coerce") >= 30]
-    else:
-        df = df[df["confidence"].isin(["n", "h", "nominal", "high"])]
-    return df
+### 3.6 Lessons learned while building the reference (teach these!)
+| Problem we hit | Cause | Fix |
+|---|---|---|
+| Rectangle around Indonesia counted fires in **northern Australia** | The API returns a rectangle, not a country | Match each hotspot to its province and keep only those inside |
+| "Last 24 hours" showed **0 hotspots** in the morning | FIRMS days are UTC; today's VIIRS data arrives hours later | Compare complete days only; show today separately |
+| Live "× normal" too high | Two live VIIRS satellites vs one in the history | Use only NOAA-20 for the comparison |
+| January ratio biased | VIIRS started 20 Jan 2012 | Treat Jan 2012 VIIRS as unknown |
+| Critical period only 1 week long | Median weeks are spiky | Smooth over 5 weeks first |
+| Too many "unusual" squares on dark cells | Quiet months doubling from tiny numbers | Require ≥ 10% of the worst month ever recorded there |
+| Satellite photo did not show with pydeck `TileLayer` or a Mapbox style | Not supported by pydeck inside Streamlit | One `BitmapLayer` image per place |
+| `data:` image URLs crashed the map | pydeck turns plain strings into JavaScript expressions | Wrap the data URL in double quotes (`image=f'"{url}"'`) |
+| Photo worked locally but **not on Streamlit Cloud** | Earlier version saved images in a gitignored `static/` folder; Streamlit only serves `static/` if it exists at start-up, and app URLs differ behind the Cloud proxy | Send pictures as data URLs inside the map instead of files |
+| Black areas in today's photo | Satellite has not passed there yet | Composite newest pixels over yesterday's photo |
+| Code changes "not applied" | Streamlit keeps imported modules in memory | Restart the server after changing modules |
 
+## 4. Configuration & secrets
 
-def to_cell_days(df: pd.DataFrame) -> pd.DataFrame:
-    return pd.DataFrame({
-        "cx": np.floor(df["longitude"] / GRID).astype("int32"),
-        "cy": np.floor(df["latitude"] / GRID).astype("int32"),
-        "date": pd.to_datetime(df["acq_date"]),
-    }).drop_duplicates()                                          # one count per cell per day
+| File | Content |
+|---|---|
+| `earthguard/config.py` | Grid size, overlap years, thresholds (unusual, fire season), colours, disclaimer |
+| `.streamlit/config.toml` | Dark theme colours |
+| `.streamlit/secrets.toml` | `FIRMS_MAP_KEY = "..."` (free key from https://firms.modaps.eosdis.nasa.gov/api/map_key/). **Never commit** |
 
-
-def build_year(zip_path: Path, sensor: str) -> pd.DataFrame:
-    parts = []
-    with zipfile.ZipFile(zip_path) as zf:
-        for name in zf.namelist():
-            if not name.endswith(".csv"):
-                continue
-            country = Path(name).stem.split("_")[-1]              # verify naming on day 1
-            for chunk in pd.read_csv(zf.open(name), usecols=lambda c: c in COLS,
-                                     chunksize=500_000):
-                cells = to_cell_days(clean(chunk, sensor))
-                cells["country"] = country
-                parts.append(cells)
-    out = pd.concat(parts).drop_duplicates()
-    out["sensor"] = sensor
-    return out   # save as data/interim/{sensor}_{year}.parquet
-```
-
-### 3.2 `earthguard/harmonize.py`
-```python
-import pandas as pd
-
-OVERLAP = ("2012-01-01", "2025-12-31")
-MIN_MODIS = 50  # cell-days needed before we trust a month-of-year ratio
-
-
-def fit_ratios(daily: pd.DataFrame) -> pd.DataFrame:
-    """daily: columns region_id, date, sensor ('MODIS'/'VIIRS'), cell_days."""
-    d = daily[daily["date"].between(*OVERLAP)]
-    m = (d.assign(moy=d["date"].dt.month)
-           .pivot_table(index=["region_id", "moy"], columns="sensor",
-                        values="cell_days", aggfunc="sum", fill_value=0))
-    by_moy = m["VIIRS"] / m["MODIS"].where(m["MODIS"] >= MIN_MODIS)
-    overall = m.groupby("region_id").sum()
-    by_region = overall["VIIRS"] / overall["MODIS"].where(overall["MODIS"] >= MIN_MODIS)
-    ratio = by_moy.fillna(by_region.reindex(by_moy.index.get_level_values(0)).to_numpy())
-    global_ratio = m["VIIRS"].sum() / m["MODIS"].sum()
-    return ratio.fillna(global_ratio).rename("ratio").reset_index()
-
-
-def harmonize(series: pd.DataFrame, ratios: pd.DataFrame) -> pd.Series:
-    """series: monthly MODIS and VIIRS cell-days for ONE region (index = month start)."""
-    r = series.index.month.map(ratios.set_index("moy")["ratio"])
-    viirs_eq = series["VIIRS"] / r
-    return series["MODIS"].where(series.index.year < 2012, viirs_eq).rename("harmonized")
-```
-**Validation** (`validate()`): for each year 2012–2025, refit the ratios without that year, predict MODIS-equivalent values for that year, then compute **R²** and **median absolute % error** against real MODIS. These numbers appear on the Harmonization page.
-
-### 3.3 `earthguard/burn_calendar.py`
-```python
-import pandas as pd
-
-MIN_COUNT = 10  # avoid calling "3 vs 1 hotspots" unusual
-
-
-def calendar_matrix(monthly: pd.Series) -> pd.DataFrame:
-    """rows = years, columns = months 1..12 (for go.Heatmap)."""
-    return (monthly.to_frame("v")
-            .assign(year=monthly.index.year, month=monthly.index.month)
-            .pivot(index="year", columns="month", values="v"))
-
-
-def typical_and_unusual(mat: pd.DataFrame):
-    typical = mat.median()                  # per month
-    p90 = mat.quantile(0.90)
-    unusual = (mat > p90) & (mat >= MIN_COUNT)
-    times_typical = mat / typical.clip(lower=1)
-    return typical, unusual, times_typical
-
-
-def critical_window(weekly_typical: pd.Series) -> list[int]:
-    """Weeks where typical activity >= 50% of the peak week."""
-    return weekly_typical.index[weekly_typical >= 0.5 * weekly_typical.max()].tolist()
-
-
-def season_by_year(weekly: pd.DataFrame) -> pd.DataFrame:
-    """weekly: rows = years, columns = weeks 1..52 -> start/peak/end per year."""
-    cum = weekly.cumsum(axis=1).div(weekly.sum(axis=1), axis=0)
-    return pd.DataFrame({
-        "start": (cum >= 0.10).idxmax(axis=1),
-        "peak": weekly.idxmax(axis=1),
-        "end": (cum >= 0.90).idxmax(axis=1),
-    })
-```
-
-### 3.4 `earthguard/firms_live.py` (should-have)
-```python
-import io
-
-import pandas as pd
-import requests
-import streamlit as st
-
-BASE = "https://firms.modaps.eosdis.nasa.gov/api/area/csv"
-SOURCES = ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "MODIS_NRT"]  # S-NPP ended Nov 2, 2026
-
-
-@st.cache_data(ttl=3600)
-def recent_hotspots(bbox: tuple[float, float, float, float], days: int = 1) -> pd.DataFrame:
-    west, south, east, north = bbox
-    key = st.secrets["FIRMS_MAP_KEY"]
-    frames = []
-    for source in SOURCES:
-        url = f"{BASE}/{key}/{source}/{west},{south},{east},{north}/{min(days, 5)}"
-        frames.append(pd.read_csv(io.StringIO(requests.get(url, timeout=60).text)))
-    return pd.concat(frames, ignore_index=True)
-```
-
-## 4. Team roles (6 students)
+## 5. Team roles (6 students)
 
 | # | Role | Owns | Event-day focus |
 |---|---|---|---|
-| 1 | **Team Lead & Submission** | `config.py`, `LICENSE`, README, tests (with #3) | Map the final challenge statement to features, run check-ins, QA, project page + submission |
-| 2 | **Data Engineer** | `etl/*`, `aoi.py`, `firms_live.py`, `data/` | Downloads, ETL, region mapping, parquet outputs |
-| 3 | **Data Analyst** | `harmonize.py`, `burn_calendar.py`, `pages/harmonization.py` | Harmonization method, validation numbers, unusual/critical logic |
-| 4 | **App Developer** | `app.py`, `pages/calendar.py`, `pages/unusual.py`, `requirements.txt` | App skeleton, shared sidebar state, deployment |
-| 5 | **Maps & Visuals** | `charts.py`, `maps.py`, `gibs.py`, theme | Stitch mockups → Streamlit theme, all charts, live map |
-| 6 | **Research & Storytelling** | `about.py`, `stories.py`, `content/`, `REFERENCES.md` | Science background, wording, references/licenses, demo video script |
+| 1 | **Team Lead & Submission** | `config.py`, `LICENSE`, README, tests (with #3) | Map the final challenge statement to features, check-ins, QA, project page + submission |
+| 2 | **Data Engineer** | `etl/*`, `firms_live.py`, `data/` | Downloads, ETL, live API |
+| 3 | **Data Analyst** | `harmonize.py`, `burn_calendar.py`, `now.py`, tests | Harmonization, validation numbers, unusual/season/now logic |
+| 4 | **App Developer** | `app.py`, `data.py`, `requirements.txt` | The one page, caching, deployment |
+| 5 | **Maps & Visuals** | `maps.py`, `charts.py`, `satellite.py`, `smoke.py`, theme | Calendar chart, live map, satellite photo, smoke layer |
+| 6 | **Research & Storytelling** | `ui.py`, summary wording, `REFERENCES.md`, About text | Science background, plain-language summary, references, demo video script |
 
-**Backup pairs:** 2↔3, 4↔5, 1↔6. Everyone must be able to explain the calendar and the harmonization in their own words, because judges may ask anyone.
+**Backup pairs:** 2↔3, 4↔5, 1↔6. Everyone must be able to explain the calendar, the harmonization, and the "× normal" in their own words.
 
-## 5. Event plan: Day 1 (Nov 14)
+## 6. Event plan: Day 1 (Nov 14)
 
-Hours are **working hours**. Adjust to your Local Event's schedule. Under-18s must be accompanied at all times, and **plan for sleep**.
-
-| Hours | #1 Lead | #2 Data | #3 Analyst | #4 App | #5 Visual | #6 Research |
-|---|---|---|---|---|---|---|
-| 0–1 | **Whole team**: read the final challenge statement, update the PRD §3 table, agree on MVP | Start **all downloads** (MODIS first) on the fastest connection | ″ | ″ | ″ | ″ |
-| 1–3 | Create repo, `LICENSE`, board, branch rules | Open one zip and confirm file names + columns. Write `build_cell_days.py` | Write `harmonize.py` + `burn_calendar.py` against **fake data** | `app.py` skeleton, sidebar state, empty pages, deploy "hello" | Stitch: Prompt 0 → theme in `config.toml` | Research fire seasons, write About-page text, start `REFERENCES.md` |
-| 3–6 | Tests for calendar/harmonize functions | Run ETL on MODIS years. **Split VIIRS years across 2–3 laptops** | Unit tests, validation function | Calendar page using fake data | `charts.py`: calendar heatmap, profile chart | Wording rules, limitations text, story outline |
-| 6–8 | Checkpoint review | `build_regions.py`: cell → admin-1. Write `daily_regions.parquet` | Fit ratios on real data, first validation numbers | Swap fake data for real parquet | Harmonization charts (3-line + scatter) | Demo-video script draft |
-| **End of Day 1** | ✅ **Checkpoint:** calendar shows real harmonized data for at least the featured countries | | | | | |
-
-## 6. Event plan: Day 2 (Nov 15)
+Hours are **working hours**. Adjust to your Local Event. Under-18s must be accompanied at all times, and **plan for sleep**.
 
 | Hours | #1 Lead | #2 Data | #3 Analyst | #4 App | #5 Visual | #6 Research |
 |---|---|---|---|---|---|---|
-| 0–3 | QA pass, bug list | Finish remaining countries, AOI search (`aoi.py`) | Unusual & critical logic on real data | Unusual & Critical page | Polish charts, legends, captions | About page + references complete |
-| 3–5 | Project page draft (challenge mapping, NASA data list, AI disclosure) | `firms_live.py` (should-have) | Harmonization page text + metrics | Live Map page (should-have) | pydeck map (should-have) | 1–2 Fire Season Stories (should-have) |
-| 5–7 | Full run-through with a "judge" (parent) | Fix data bugs | Sanity-check numbers vs FIRMS map | Performance (< 3 s), mobile check | Final visual polish | **Record demo video**: screen recording + captions, no kids' faces/voices/names |
+| 0–1 | **Whole team**: read the challenge statement, update PRD §3, agree on the MVP | Start **all downloads** (4 parallel) | ″ | ″ | ″ | ″ |
+| 1–3 | Repo, `LICENSE`, board | Open one zip, confirm layout/columns, write `build_cell_days.py` | `harmonize.py` + `burn_calendar.py` on **made-up data** + tests | `app.py` skeleton: picker, 3 cards (fake numbers), deploy "hello" | Theme; calendar heatmap on fake data | Plain-language wording, `REFERENCES.md` |
+| 3–6 | Tests | Run ETL (MODIS first), then `build_regions.py` | Validation function, ratio fallbacks | Calendar section with real data | `harmonization_lines` chart | About text, limitations |
+| 6–8 | Checkpoint review | Fix data issues, `cell_provinces.parquet` | Check validation numbers for 5 places | Summary paragraph (history part) | Polish the calendar | Demo script draft |
+| **End of Day 1** | ✅ **Checkpoint:** calendar + harmonization + summary with real data for any place | | | | | |
+
+## 7. Event plan: Day 2 (Nov 15)
+
+| Hours | #1 Lead | #2 Data | #3 Analyst | #4 App | #5 Visual | #6 Research |
+|---|---|---|---|---|---|---|
+| 0–3 | QA pass | `firms_live.py` (UTC days, parallel) | `now.py`: inside place, × normal, hottest parts | "Right now" card + summary sentence | `maps.py` live map (dark background first) | Check live numbers against the FIRMS map |
+| 3–5 | Project page draft (challenge mapping, NASA data list, AI disclosure) | Help #5 with GIBS requests | Unusual-now rule tests | Error handling (no key, API down) | `satellite.py` photo, then `smoke.py` (should-have) | Smoke sentence wording + limits |
+| 5–7 | Full run-through with a "judge" (parent) | Fix bugs | Sanity-check numbers | Speed (caching) | Final visual polish | **Record demo video**: screen recording + captions, no kids' faces/voices/names |
 | 7–8 | **CODE FREEZE → deploy → submit early** | | | | | |
 
-**Scope-cut rule:** if the Day 1 checkpoint is missed, drop the Live Map and Stories and keep only Calendar + Unusual & Critical + Harmonization + About. Those four answer the challenge.
+**Scope-cut rule:** if the Day 1 checkpoint is missed, drop smoke and the satellite photo (keep the live map on the dark background). If still late, drop the live part entirely. Calendar + harmonization + summary already answer the challenge.
 
-## 7. Performance & data-size targets
+## 8. Measured performance (reference implementation, 16-core laptop)
 
-| Item | Target |
+| Item | Result |
 |---|---|
-| Raw download | ~7 GB (MODIS ~2 GB + VIIRS S-NPP ~5 GB), stays on laptops, **never committed** |
-| `daily_regions.parquet` (region × day × sensor) | < 100 MB (GitHub file limit). If larger, aggregate to weekly or split by continent |
-| App memory on Streamlit Cloud | Load with `st.cache_data`, filter by region before plotting |
-| Calendar render | < 3 s per region |
+| Download | 39 files, 6.5 GB, ~1 h at ~2 MB/s with 4 connections |
+| `build_cell_days.py` + `build_regions.py` | ~6 min; ≈245 M cell-days → 4,453 places |
+| Processed data | monthly 2.2 MB, weekly 5.8 MB, regions 0.3 MB, cell_provinces 12 MB |
+| First load of a place | ~10–15 s (FIRMS + photo + smoke, all in parallel); then cached |
+| Satellite photo | ~0.3 MB (province) to ~0.9 MB (world) |
+| Tests | 15 passing, < 1 s |
 
-## 8. Test & submission checklist
+## 9. Test & submission checklist
 
 ### App
-- [ ] Calendar works for the featured regions (Riau, Mato Grosso, New South Wales, British Columbia) and 5 random countries.
-- [ ] The harmonized line has no visible jump at 2012. Validation R² and error are shown honestly.
-- [ ] Unusual cells and critical windows make sense (e.g. 2015 Indonesia and 2019–20 Australia stand out).
-- [ ] Regions with almost no fires show a friendly "too little data" message, not an error.
-- [ ] The footer disclaimer and "Data: NASA FIRMS" appear on every page.
+- [ ] Works for a province, a country and the whole world (e.g. Riau, Indonesia, Brazil, New South Wales, Whole world).
+- [ ] Indonesia's live count does **not** include Australian fires (filter inside place).
+- [ ] The harmonized line has no visible jump at 2012; R² and error are shown honestly.
+- [ ] Known events appear as unusual (Riau 2014, NSW Dec 2019, Canada 2023, Indonesia 2015).
+- [ ] Places with almost no fire show a friendly message; no MAP_KEY / API down shows a message, not a crash.
+- [ ] All three map backgrounds work; the smoke sentence mentions the unmeasured share.
+- [ ] Disclaimer and "Data: NASA FIRMS" are visible.
 
 ### Rules
 - [ ] No names, faces, or voices of under-18s anywhere (app, video, project page, avatars).
-- [ ] `LICENSE` (Apache-2.0) and `REFERENCES.md` list every dataset and library with its license.
-- [ ] `secrets.toml` is gitignored, and the MAP_KEY is not in the repo.
-- [ ] The project page states the challenge, the NASA datasets used, and the AI tools used (if any).
-- [ ] Submitted before the Local Event's deadline.
+- [ ] `LICENSE` (Apache-2.0); `REFERENCES.md` lists every dataset and library with its license (verify DOIs and basemap terms).
+- [ ] `secrets.toml` is gitignored; the MAP_KEY is not in the repo.
+- [ ] The project page states the challenge, NASA datasets used, and AI tools used.
+- [ ] Submitted before the Local Event deadline.
 
-## 9. Before the event (Oct 15 – Nov 13): learning & setup only
+## 10. Before the event (Oct 16 – Nov 13): learning & setup only
 
-General skills only, practiced on **unrelated datasets**. Do not build EarthGuard or process FIRMS data for the project.
+General skills only, practised on **unrelated datasets**.
 
 | Who | Learn | Practice idea (not the challenge) |
 |---|---|---|
-| All | Git & GitHub basics: branch, commit, pull request | Shared "hello" repo |
-| #1 Lead | Team workflow, GitHub Projects, writing a README | Plan a pretend project |
-| #2 Data | pandas: `read_csv` with `chunksize`, `groupby`, `parquet` | Any large public CSV (e.g. weather or transport data) |
-| #3 Analyst | Percentiles, median, R², cross-validation basics | Analyse a sports or weather dataset |
-| #4 App | Streamlit: multipage apps, `st.session_state`, `st.cache_data`, deploy to Streamlit Cloud | A small personal dashboard |
-| #5 Visual | Plotly heatmaps/line charts, pydeck basics, Streamlit theming | Chart any open dataset |
-| #6 Research | How satellites detect fire (general reading), citing sources, open-source licenses | Write a 1-page explainer on any science topic |
+| All | Git & GitHub: branch, commit, pull request | Shared "hello" repo |
+| #1 Lead | Team workflow, GitHub Projects, README writing | Plan a pretend project |
+| #2 Data | pandas `read_csv` (pyarrow), `groupby`, parquet; calling a web API with `requests` | Any public CSV + any free JSON API |
+| #3 Analyst | Median, percentiles, ratios, R², cross-validation; writing pytest tests | Analyse a sports or weather dataset |
+| #4 App | Streamlit: layout, `st.metric`, `st.cache_data`, `st.secrets`, deploy | A small personal dashboard |
+| #5 Visual | Plotly heatmaps, pydeck `ScatterplotLayer` / `BitmapLayer`, Pillow basics | Map any open dataset |
+| #6 Research | How satellites see fire and smoke (general reading), citing sources, licenses | A one-page explainer on any science topic |
 
 ### Setup checklist (accounts only)
-- [ ] Parent/guardian registers each student and picks the **same Local Event**. Team formed on spaceappschallenge.org, challenge selected.
-- [ ] GitHub accounts, Streamlit Community Cloud account.
-- [ ] Free FIRMS `MAP_KEY` and NASA Earthdata Login (in case downloads require it).
-- [ ] Laptops: Python 3.11+, `pip install streamlit pandas pyarrow plotly pydeck geopandas requests`, at least 15 GB free disk.
-- [ ] Find the fastest internet available at the event venue (or plan where downloads will run).
-- [ ] Read the full challenge statement on **Oct 28**, and the Submission + Judging guides on **Nov 13**.
+- [ ] Parent/guardian registers each student in the **same Local Event**; team formed; challenge selected.
+- [ ] GitHub and Streamlit Community Cloud accounts.
+- [ ] Free FIRMS `MAP_KEY`.
+- [ ] Laptops: Python 3.11+, `pip install -r requirements.txt geopandas pytest`, ≥ 15 GB free disk.
+- [ ] Fast internet available at the venue for the 6.5 GB download.
+- [ ] Read the full challenge statement (**Oct 28**) and the Submission + Judging guides (**Nov 13**).
+
+## 11. Running the reference implementation
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt geopandas pytest
+python etl/download.py          # ~6.5 GB
+#   + Natural Earth admin-1 zip into data/boundaries/ (see README)
+python etl/build_cell_days.py
+python etl/build_regions.py
+streamlit run app.py
+python -m pytest
+```

@@ -9,7 +9,6 @@ pixel that a satellite has already photographed today. The result is always comp
 new as possible.
 """
 
-import hashlib
 import io
 import math
 from concurrent.futures import ThreadPoolExecutor
@@ -21,9 +20,8 @@ import requests
 import streamlit as st
 from PIL import Image
 
-from earthguard.config import ROOT
+from earthguard.maps import to_data_url
 
-PHOTO_DIR = ROOT / "static" / "satellite"
 WMS_URL = "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi"
 MORNING = "MODIS_Terra_CorrectedReflectance_TrueColor"      # passes ~10:30 local time
 AFTERNOON = "VIIRS_NOAA20_CorrectedReflectance_TrueColor"   # passes ~13:30 local time
@@ -66,11 +64,7 @@ def _download(layer: str, day: date, bounds: list[float]) -> np.ndarray:
 
 @st.cache_data(ttl=3600, show_spinner="Getting the newest NASA satellite photo…")
 def newest_photo(bbox: tuple, today: date) -> tuple[str, list[float], float]:
-    """Returns (image URL, its bounds, share of the area photographed today).
-
-    The finished picture is saved in static/satellite/, which Streamlit serves to the browser
-    at app/static/... (see enableStaticServing in .streamlit/config.toml).
-    """
+    """Returns (image as a data URL, its bounds, share of the area photographed today)."""
     bounds = frame(bbox)
     # Oldest first: each newer photo is pasted over the older ones where it has pixels.
     passes = [(AFTERNOON, today - timedelta(days=1)), (MORNING, today), (AFTERNOON, today)]
@@ -86,7 +80,4 @@ def newest_photo(bbox: tuple, today: date) -> tuple[str, list[float], float]:
             photo[photographed] = picture[photographed]
             today_share = max(today_share, photographed.mean())
 
-    name = hashlib.md5(f"{bounds}{today}".encode()).hexdigest()[:12] + ".jpg"
-    PHOTO_DIR.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(photo).save(PHOTO_DIR / name, format="JPEG", quality=85)
-    return f"app/static/satellite/{name}", bounds, float(today_share)
+    return to_data_url(Image.fromarray(photo)), bounds, float(today_share)

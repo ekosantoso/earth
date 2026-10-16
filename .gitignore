@@ -17,5 +17,3 @@ data/*.log
 .idea/
 *.iml
 
-# Satellite photos made by the app at runtime
-static/

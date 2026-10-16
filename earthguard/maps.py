@@ -1,10 +1,13 @@
 """pydeck maps. pydeck draws with the graphics card (WebGL), so many points stay smooth."""
 
+import base64
+import io
 import math
 
 import numpy as np
 import pandas as pd
 import pydeck as pdk
+from PIL import Image
 
 CONFIDENCE_COLORS = {
     "high": [239, 68, 68, 220],      # red
@@ -59,8 +62,20 @@ def _cells_layer(hotspots: pd.DataFrame) -> pdk.Layer:
 
 
 def photo_layer(image: str, bounds: list[float]) -> pdk.Layer:
-    """Show a picture (URL or data URL) stretched over bounds = [west, south, east, north]."""
-    return pdk.Layer("BitmapLayer", data=None, image=image, bounds=bounds)
+    """Show a picture (a data URL) stretched over bounds = [west, south, east, north].
+
+    pydeck treats plain strings as JavaScript expressions. Wrapping the text in double quotes
+    tells it "this is just text", so the picture travels inside the map data itself and needs
+    no file or web address (which also works on Streamlit Community Cloud).
+    """
+    return pdk.Layer("BitmapLayer", data=None, image=f'"{image}"', bounds=bounds)
+
+
+def to_data_url(picture: Image.Image, fmt: str = "JPEG") -> str:
+    """A picture as text ("data:image/...;base64,...") that a browser can show directly."""
+    buffer = io.BytesIO()
+    picture.save(buffer, format=fmt, **({"quality": 85} if fmt == "JPEG" else {}))
+    return f"data:image/{fmt.lower()};base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
 def hotspot_map(hotspots: pd.DataFrame, bbox: tuple,

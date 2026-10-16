@@ -13,7 +13,7 @@
 | Companion docs | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · [stitch-prompts.md](stitch-prompts.md) (still describes the earlier multi-page design) |
 
 > ⚠️ **Space Apps rules forbid starting work on the challenge before Nov 14 (§11).** This PRD and the code in this repo are a **teaching reference** for coaches. At the event, students build their own version.
-> The full challenge statement was published Oct 28: re-check §3 against it.
+> The full challenge statement will be published Oct 28: re-check §3 against it then.
 
 ---
 
@@ -239,4 +239,44 @@ One page, no menus, dark theme (colours from `stitch-prompts.md`):
 [ Place: 📍 Riau, Indonesia ▾ ]
 ┌ Right now: 0.5× normal ┐ ┌ Fire season: Jun – Aug ┐ ┌ Worst year: 2014 (3.6×) ┐
 > Summary: now · hottest parts · smoke · season · worst year
-🗺️ H
+🗺️ Hotspots and smoke right now   [Photo + smoke | Photo | Dark map]
+   map + caption + ▸ list of latest hotspots (CSV)
+📅 Fire calendar 2001–2025   heatmap + normal-year bars + "most unusual months"
+▸ 🛰️ How it works — combining two NASA satellites
+▸ ℹ️ About the data
+⚠️ disclaimer · data credit
+```
+
+**Wording rules**
+- Use "hotspot", "active-fire detection", or "burning", never "confirmed fire".
+- Disclaimer: *"Satellite hotspots are not confirmed fires. EarthGuard supports planning and research; it is not an official alert system."*
+- No NASA logo. The Space Apps logo may be used per its brand guidelines.
+
+## 10. Risks
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| ~7 GB download on event-day internet | No data | Start in **hour 0**, 4 parallel downloads (~2 MB/s → ~1 h), MODIS first |
+| ETL too slow on student laptops | Late | pyarrow CSV reading, one file at a time, parallel years (full run ≈ 6 min on 16 cores) |
+| FIRMS / GIBS API unavailable or slow | Live part empty | Every live part fails gracefully (message instead of crash); history part still works; results cached 1 h |
+| Live counts contaminated by neighbours | Wrong "× normal" | Filter hotspots to the place via the cell → province lookup (§7.5) |
+| "Today" incomplete | Fire looks like it is dropping | Compare complete days only (§7.5) |
+| Smoke hidden by clouds | Under-reported smoke | Report the unmeasured share in the sentence |
+| Streamlit Cloud memory (~1 GB) | Crash | Ship only aggregated tables (~20 MB), never raw points |
+| Final challenge statement changes requirements | Rework | Re-map §3 at the start of the event |
+| Minors' rules broken | Disqualification risk | No names, faces, or voices of under-18s anywhere (§11) |
+
+## 11. Space Apps compliance (verified Oct 15, 2026)
+
+| Rule | Source | Our action |
+|---|---|---|
+| **No work on the challenge before the hackathon** | Participant FAQ | This repo is a coach's teaching reference; students build their own at the event. Confirm with the Local Lead |
+| Under-18s **registered by a parent/guardian** and **accompanied at all times** | FAQ, Terms | Parents register the team and attend |
+| No recognizable **names, voices, or likenesses** of under-18s | Terms §Submissions, §Media Release | Screen-recorded demo with captions (or an adult narrator); team shown by roles only |
+| Max **6 members**, **one challenge**, same Local Event (or Universal Event) | FAQ | 6 students, one event |
+| Original work is **open source** (default Apache-2.0) | Terms §IP | `LICENSE` = Apache-2.0 |
+| Non-NASA materials freely available/open, **licenses documented** | Terms §Third-party | `REFERENCES.md`; check the basemap terms |
+| **Cite every source**, including libraries | Terms §Third-party | `REFERENCES.md` + *About the data* |
+| No commercial promotion | Terms §Submissions | No product logos/ads |
+| Submit via the **team project page** | FAQ | Submission guide published Nov 13 |
+| AI tool usage | Expected in the Nov 13 guides | Disclose AI tools used in the project description |

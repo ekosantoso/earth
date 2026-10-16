@@ -4,6 +4,7 @@ pyarrow>=15
 plotly>=5.20
 pydeck>=0.9
 requests>=2.31
+pillow>=10
 
 # Only needed to rebuild the data (etl/), not to run the app:
 #   geopandas>=1.0

@@ -12,7 +12,6 @@ sometimes mistaken for cloud. So "covered by smoke" is a share of the area the s
 could SEE, and real smoke can be larger.
 """
 
-import hashlib
 import io
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -27,7 +26,8 @@ from PIL import Image
 
 from earthguard import data
 from earthguard.config import GRID_DEG, PROCESSED_DIR, PROVINCE_CELLS
-from earthguard.satellite import PHOTO_DIR, WMS_URL, _mercator, frame
+from earthguard.maps import to_data_url
+from earthguard.satellite import WMS_URL, _mercator, frame
 
 COLORMAP_URL = "https://gibs.earthdata.nasa.gov/colormaps/v1.3/MODIS_VIIRS_AOD.xml"
 TERRA = "MODIS_Terra_Aerosol_Optical_Depth_3km"
@@ -94,20 +94,15 @@ def smoke_map(bbox: tuple, today: date) -> tuple[np.ndarray, list[float]]:
 
 
 def overlay(aod: np.ndarray, bounds: list[float]) -> str:
-    """Save a see-through smoke picture (yellow = haze ... dark red = thick smoke) for the map.
-
-    Returns its path under static/, like satellite.newest_photo().
-    """
+    """A see-through smoke picture for the map (yellow = haze ... red = thick smoke),
+    as a data URL like satellite.newest_photo()."""
     strength = np.clip((np.nan_to_num(aod, nan=0.0) - HAZE / 2) / (2.0 - HAZE / 2), 0, 1)
     rgba = np.zeros(aod.shape + (4,), dtype=np.uint8)
     rgba[..., 0] = 255
     rgba[..., 1] = (220 * (1 - strength)).astype(np.uint8)
     rgba[..., 2] = 40
     rgba[..., 3] = np.where(np.nan_to_num(aod, nan=0.0) >= HAZE / 2, 90 + 140 * strength, 0)
-    name = hashlib.md5(f"smoke{bounds}{aod.shape}{np.nansum(aod)}".encode()).hexdigest()[:12]
-    PHOTO_DIR.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(rgba, "RGBA").save(PHOTO_DIR / f"{name}.png")
-    return f"app/static/satellite/{name}.png"
+    return to_data_url(Image.fromarray(rgba, "RGBA"), "PNG")
 
 
 @st.cache_data
