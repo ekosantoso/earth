@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Raw and intermediate data are large and can be rebuilt with the ETL scripts.
+data/raw/
+data/interim/
+data/boundaries/
+data/*.log
+
+# Secrets (FIRMS MAP_KEY) must never be committed.
+.streamlit/secrets.toml
+
+# IDE
+.idea/
+*.iml
+
+# Satellite photos made by the app at runtime
+static/
