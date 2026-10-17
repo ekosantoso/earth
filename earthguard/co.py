@@ -27,13 +27,40 @@ LAYERS = ["AIRS_L2_Carbon_Monoxide_500hPa_Volume_Mixing_Ratio_Night",
           "AIRS_L2_Carbon_Monoxide_500hPa_Volume_Mixing_Ratio_Day"]
 DAYS = 4                       # today + the 3 days before
 WIDTH, HEIGHT = 1440, 720      # 0.25 degree per pixel, the whole world
-LOW, HIGH = 60.0, 180.0        # ppbv shown from blue (clean) to dark red (lots of CO)
+# ppbv shown from blue (clean) to dark red. Clean air is ~60-90 ppbv; thick fire smoke over
+# Indonesia reaches 350 (the most AIRS reports), so the scale must go that high to show detail.
+LOW, HIGH = 60.0, 350.0
 NO_DATA = (30, 41, 59)         # dark slate where no measurement exists
+SMOOTH_PX = 3                  # blur radius in pixels (0.75 deg) to hide blocks and swath seams
 
 # Colour stops like NASA Eyes: blue -> green -> yellow -> orange -> red -> dark red
-STOPS = [(0.00, (43, 131, 186)), (0.25, (102, 194, 165)), (0.45, (171, 221, 164)),
-         (0.60, (254, 224, 139)), (0.75, (253, 174, 97)), (0.88, (215, 25, 28)),
+STOPS = [(0.00, (43, 131, 186)), (0.12, (102, 194, 165)), (0.25, (171, 221, 164)),
+         (0.40, (254, 224, 139)), (0.55, (253, 174, 97)), (0.72, (215, 25, 28)),
          (1.00, (103, 0, 31))]
+
+
+def _box_blur(a: np.ndarray, radius: int) -> np.ndarray:
+    """Average of each pixel's (2r+1) x (2r+1) neighbourhood. East-west wraps around the globe."""
+    padded = np.concatenate([a[:, -radius:], a, a[:, :radius]], axis=1)
+    padded = np.pad(padded, ((radius, radius), (0, 0)), mode="edge")
+    for axis in (0, 1):
+        c = np.cumsum(np.insert(padded, 0, 0, axis=axis), axis=axis)
+        n = padded.shape[axis] - 2 * radius
+        padded = (np.take(c, range(2 * radius + 1, 2 * radius + 1 + n), axis=axis)
+                  - np.take(c, range(0, n), axis=axis)) / (2 * radius + 1)
+    return padded
+
+
+def smooth(values: np.ndarray, radius: int = SMOOTH_PX) -> np.ndarray:
+    """Blur that ignores missing pixels: average only the measured neighbours. Running it
+    twice gives a soft, Gaussian-like result; small gaps are filled, big gaps stay empty."""
+    measured = np.isfinite(values).astype(float)
+    total, count = np.nan_to_num(values), measured
+    for _ in range(2):
+        total, count = _box_blur(total, radius), _box_blur(count, radius)
+    result = total / np.where(count > 0, count, 1)
+    result[count < 0.15] = np.nan
+    return result
 
 
 def _download(layer: str, day: date) -> np.ndarray:
@@ -78,4 +105,5 @@ def world_map(today: date) -> tuple[str, str, float]:
     for picture in pictures:                      # newer measurements replace older ones
         values = np.where(np.isnan(picture), values, picture)
     period = f"{days[0]:%d %b} – {days[-1]:%d %b %Y}"
-    return to_data_url(Image.fromarray(colour(values))), period, float(np.isfinite(values).mean())
+    picture = Image.fromarray(colour(smooth(values)))
+    return to_data_url(picture), period, float(np.isfinite(values).mean())

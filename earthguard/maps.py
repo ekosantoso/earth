@@ -145,7 +145,9 @@ def globe_map(hotspots: pd.DataFrame | None, bbox: tuple, picture: str | None,
         layers.append(_spots_layer(hotspots))
     view = view_for(bbox)
     return pdk.Deck(
-        layers=layers, views=[pdk.View(type="_GlobeView", controller=True)],
+        # resolution: the globe is built from flat pieces this many degrees wide. The default
+        # (10) makes the edge of the Earth look angular; 2 makes it round.
+        layers=layers, views=[pdk.View(type="_GlobeView", controller=True, resolution=2)],
         # Start far enough away to see the whole globe, turned towards the chosen place.
         # The CO picture covers the world in `width_px` pixels: stop zooming before it gets blocky.
         initial_view_state=pdk.ViewState(longitude=view.longitude, latitude=view.latitude,
