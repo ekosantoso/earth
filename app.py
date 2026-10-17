@@ -133,6 +133,16 @@ st.markdown("> " + "  \n> ".join(story))
 st.subheader("🗺️ Hotspots and smoke right now")
 FLAT, GLOBE = "Flat map", "Globe 3D (carbon monoxide)"
 view = st.segmented_control("View", [FLAT, GLOBE], default=FLAT)
+# Only the map is filtered: "× normal" and the calendar keep nominal + high confidence,
+# the same as the 25-year history, so the comparison stays fair.
+high_only = st.toggle("High confidence only", value=True,
+                      help="Show only hotspots the satellites are most sure about "
+                           "(confidence level 2). Turn off to also see nominal and low.")
+shown = None
+if live is not None:
+    shown = live[live["confidence_level"] == "high"] if high_only else live
+    shown_note = (f" Showing the {len(shown):,} **high-confidence** hotspots of "
+                  f"{len(live):,}." if high_only else "")
 
 if view == GLOBE:
     # The whole Earth with the smoke gas CO from NASA AIRS, like NASA's "Eyes on the Earth".
@@ -144,9 +154,9 @@ if view == GLOBE:
                    f"Dark grey = no measurement. Drag to spin the globe, scroll to zoom.")
     except Exception as error:  # no CO data is not a reason to hide the globe
         co_picture, co_note = None, f"(Carbon monoxide data unavailable: {error})"
-    st.pydeck_chart(maps.globe_map(live, bbox, co_picture, co.WIDTH), height=560)
-    st.caption(co_note + (f" Dots: {len(live):,} hotspots in {region['name']} (last {window} "
-                          "+ today)." if live is not None else ""))
+    st.pydeck_chart(maps.globe_map(shown, bbox, co_picture, co.WIDTH), height=560)
+    st.caption(co_note + (f" Dots: hotspots in {region['name']} (last {window} + today)."
+                          + shown_note if live is not None else ""))
 else:
     # Background: a real NASA satellite photo, so you can see smoke plumes next to the hotspots,
     # optionally with the measured smoke (aerosol) painted on top.
@@ -173,11 +183,11 @@ else:
         photo_note += (" Yellow-to-red shading = smoke/haze measured by NASA (aerosol); "
                        "no shading = clean air or not measured (clouds).")
     if live is not None:
-        st.pydeck_chart(maps.hotspot_map(live, bbox, pictures, max_zoom), height=520)
+        st.pydeck_chart(maps.hotspot_map(shown, bbox, pictures, max_zoom), height=520)
         today_count = len(live) - len(finished)
         st.caption(f"{len(finished):,} hotspots in the last {window} + {today_count:,} today so "
-                   "far (UTC; new satellite passes appear within a few hours). "
-                   + maps.legend(live) + photo_note)
+                   "far (UTC; new satellite passes appear within a few hours)." + shown_note + " "
+                   + maps.legend(shown) + photo_note)
 
 if live is not None:
     with st.expander("List of the latest hotspots"):
