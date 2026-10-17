@@ -112,6 +112,7 @@ Short descriptions are given here. The code is the full explanation, and every m
 | `data:` image URLs crashed the map | pydeck turns plain strings into JavaScript expressions | Wrap the data URL in double quotes (`image=f'"{url}"'`) |
 | Photo worked locally but **not on Streamlit Cloud** | Earlier version saved images in a gitignored `static/` folder; Streamlit only serves `static/` if it exists at start-up, and app URLs differ behind the Cloud proxy | Send pictures as data URLs inside the map instead of files |
 | Map dots were big blobs that **grew when zooming** | More than 30,000 hotspots were grouped into 55 km circles sized in metres | Merge per ~1 km square at the exact average position, size dots in pixels, send compact data |
+| Photo became **blocky when zooming in**, and `maxZoom` was ignored | Streamlit adds its own CARTO basemap when `map_style=None`, and that basemap controls zoom | Compute a sharp zoom limit from the picture's pixels (`maps.sharp_zoom_limit`), and with pictures use `map_style="__MAP_STYLE__"` (Streamlit's marker for *no basemap*) plus Natural Earth border lines |
 | Black areas in today's photo | Satellite has not passed there yet | Composite newest pixels over yesterday's photo |
 | Code changes "not applied" | Streamlit keeps imported modules in memory | Restart the server after changing modules |
 

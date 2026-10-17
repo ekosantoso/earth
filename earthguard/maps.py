@@ -22,6 +22,7 @@ MAX_SPOTS = 35_000
 
 
 DARK_MAP_MAX_ZOOM = 12   # the dark basemap is sharp at every zoom; this just keeps it sensible
+NO_BASEMAP = "__MAP_STYLE__"   # Streamlit's marker for "no basemap" (see hotspot_map)
 
 
 def sharp_zoom_limit(bounds: list[float], width_px: int, overzoom: float = 1.0) -> float:
@@ -110,6 +111,16 @@ BORDERS_URL = ("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/m
                "ne_110m_admin_0_countries.geojson")   # Natural Earth, public domain
 
 
+LAND_BORDERS_URL = ("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/"
+                    "geojson/ne_50m_admin_0_boundary_lines_land.geojson")   # public domain
+
+
+@st.cache_data(ttl=7 * 24 * 3600)
+def _land_borders() -> dict:
+    """Borders between countries on land (coastlines are already visible in the photo)."""
+    return requests.get(LAND_BORDERS_URL, timeout=60).json()
+
+
 @st.cache_data(ttl=7 * 24 * 3600)
 def _borders() -> dict:
     """Country outlines for the globe (the globe has no map underneath, unlike the flat map)."""
@@ -145,17 +156,30 @@ def hotspot_map(hotspots: pd.DataFrame, bbox: tuple, pictures: list[pdk.Layer] |
                 max_zoom: float = DARK_MAP_MAX_ZOOM) -> pdk.Deck:
     """Hotspots on top of background pictures (bottom first, e.g. [satellite photo, smoke]).
 
-    max_zoom: how far users may zoom in (see sharp_zoom_limit, so photos never look blocky)."""
+    max_zoom: how far users may zoom in (see sharp_zoom_limit, so photos never look blocky).
+
+    With pictures we use NO basemap: the CARTO basemap controls zooming itself and ignores
+    max_zoom (we tested it). The photo already shows land and sea; country borders are added
+    on top so you still know where you are.
+    """
     west, south, east, north = bbox
     outline = pd.DataFrame({"path": [[[west, south], [east, south], [east, north],
                                       [west, north], [west, south]]]})
-    layers = [
-        *(pictures or []),
+    layers = [*(pictures or [])]
+    if pictures:
+        layers.append(pdk.Layer("GeoJsonLayer", _land_borders(), stroked=True, filled=False,
+                                get_line_color=[255, 255, 255, 170], line_width_min_pixels=1))
+    layers += [
         pdk.Layer("PathLayer", outline, get_path="path", get_color=[255, 255, 255, 180],
                   width_min_pixels=1),
         _spots_layer(hotspots),
     ]
     tooltip = {"html": "<b>{n}</b> hotspot(s) here<br>{lat}, {lon}<br>newest: {t} UTC<br>"
                        "confidence level: {c} (0 low · 1 nominal · 2 high)"}
+    if pictures:
+        # map_style=None is not enough: Streamlit then adds its own CARTO basemap. The special
+        # value "__MAP_STYLE__" tells Streamlit's map component to draw no basemap at all.
+        return pdk.Deck(layers=layers, initial_view_state=view_for(bbox, max_zoom),
+                        tooltip=tooltip, map_provider=None, map_style=NO_BASEMAP)
     return pdk.Deck(layers=layers, initial_view_state=view_for(bbox, max_zoom), tooltip=tooltip,
                     map_style=pdk.map_styles.CARTO_DARK)

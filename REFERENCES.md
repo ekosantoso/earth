@@ -25,6 +25,7 @@ https://www.earthdata.nasa.gov/data/projects/lance#ed-firms-citation
 |---|---|---|
 | Natural Earth — Admin 1 states/provinces, 1:10m | Province/state areas of interest | Public domain — https://www.naturalearthdata.com/about/terms-of-use/ |
 | Natural Earth — Admin 0 countries, 1:110m (GeoJSON from github.com/nvkelso/natural-earth-vector) | Country borders on the Globe 3D | Public domain |
+| Natural Earth — Admin 0 land boundary lines, 1:50m (same source) | Country borders on the flat map with the satellite photo | Public domain |
 | CARTO Dark Matter basemap (OpenStreetMap data) | Background of the Live Map | © CARTO, © OpenStreetMap contributors (ODbL). *Check CARTO basemap terms before public use.* |
 
 ## Software
