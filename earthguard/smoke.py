@@ -32,7 +32,7 @@ from earthguard.satellite import WMS_URL, _mercator, frame
 COLORMAP_URL = "https://gibs.earthdata.nasa.gov/colormaps/v1.3/MODIS_VIIRS_AOD.xml"
 TERRA = "MODIS_Terra_Aerosol_Optical_Depth_3km"
 AQUA = "MODIS_Aqua_Aerosol_Optical_Depth_3km"
-WIDTH = 1000          # pixels; 3 km data does not need more
+WIDTH = 1600          # pixels, same as the satellite photo so both stay sharp to the zoom limit
 HAZE = 0.5            # AOD at or above this = smoky / hazy air
 THICK = 1.0           # AOD at or above this = thick smoke
 

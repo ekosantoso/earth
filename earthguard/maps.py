@@ -21,11 +21,27 @@ SPOT_GRIDS = [(0.01, "~1 km"), (0.05, "~5 km"), (0.1, "~11 km"), (0.5, "~55 km")
 MAX_SPOTS = 35_000
 
 
-def view_for(bbox: tuple) -> pdk.ViewState:
+DARK_MAP_MAX_ZOOM = 12   # the dark basemap is sharp at every zoom; this just keeps it sensible
+
+
+def sharp_zoom_limit(bounds: list[float], width_px: int, overzoom: float = 1.0) -> float:
+    """The deepest zoom before a picture of `width_px` pixels over `bounds` starts to look blocky.
+
+    At zoom z a web map shows the whole world 512 * 2**z screen pixels wide, so one screen pixel
+    covers 360 / (512 * 2**z) degrees. The picture has (east - west) / width_px degrees per
+    pixel. They are equal at z = log2(360 * width_px / (512 * (east - west))). We allow
+    `overzoom` more zoom levels (1 = each picture pixel may become 2 x 2 screen pixels).
+    """
+    west, _, east, _ = bounds
+    return math.log2(360 * width_px / (512 * max(east - west, 1e-6))) + overzoom
+
+
+def view_for(bbox: tuple, max_zoom: float = DARK_MAP_MAX_ZOOM) -> pdk.ViewState:
     west, south, east, north = bbox
     span = max(east - west, north - south, 0.1)
-    zoom = max(0.5, min(10, math.log2(360 / span) - 0.5))
-    return pdk.ViewState(longitude=(west + east) / 2, latitude=(south + north) / 2, zoom=zoom)
+    zoom = max(0.5, min(10, math.log2(360 / span) - 0.5, max_zoom))
+    return pdk.ViewState(longitude=(west + east) / 2, latitude=(south + north) / 2, zoom=zoom,
+                         max_zoom=max_zoom)
 
 
 def merge_spots(hotspots: pd.DataFrame) -> tuple[pd.DataFrame, str]:
@@ -100,7 +116,8 @@ def _borders() -> dict:
     return requests.get(BORDERS_URL, timeout=60).json()
 
 
-def globe_map(hotspots: pd.DataFrame | None, bbox: tuple, picture: str | None) -> pdk.Deck:
+def globe_map(hotspots: pd.DataFrame | None, bbox: tuple, picture: str | None,
+              width_px: int = 1440) -> pdk.Deck:
     """A 3D globe you can spin: a whole-Earth picture (e.g. carbon monoxide), country borders
     and the hotspots on top. deck.gl calls this view "_GlobeView" (still experimental)."""
     layers = []
@@ -115,16 +132,20 @@ def globe_map(hotspots: pd.DataFrame | None, bbox: tuple, picture: str | None) -
     return pdk.Deck(
         layers=layers, views=[pdk.View(type="_GlobeView", controller=True)],
         # Start far enough away to see the whole globe, turned towards the chosen place.
+        # The CO picture covers the world in `width_px` pixels: stop zooming before it gets blocky.
         initial_view_state=pdk.ViewState(longitude=view.longitude, latitude=view.latitude,
-                                         zoom=GLOBE_ZOOM),
+                                         zoom=GLOBE_ZOOM,
+                                         max_zoom=sharp_zoom_limit([-180, -90, 180, 90], width_px)),
         map_provider=None, map_style=None, parameters={"cull": True},
         tooltip={"html": "<b>{n}</b> hotspot(s) here<br>{lat}, {lon}<br>newest: {t} UTC"},
     )
 
 
-def hotspot_map(hotspots: pd.DataFrame, bbox: tuple,
-                pictures: list[pdk.Layer] | None = None) -> pdk.Deck:
-    """Hotspots on top of background pictures (bottom first, e.g. [satellite photo, smoke])."""
+def hotspot_map(hotspots: pd.DataFrame, bbox: tuple, pictures: list[pdk.Layer] | None = None,
+                max_zoom: float = DARK_MAP_MAX_ZOOM) -> pdk.Deck:
+    """Hotspots on top of background pictures (bottom first, e.g. [satellite photo, smoke]).
+
+    max_zoom: how far users may zoom in (see sharp_zoom_limit, so photos never look blocky)."""
     west, south, east, north = bbox
     outline = pd.DataFrame({"path": [[[west, south], [east, south], [east, north],
                                       [west, north], [west, south]]]})
@@ -136,5 +157,5 @@ def hotspot_map(hotspots: pd.DataFrame, bbox: tuple,
     ]
     tooltip = {"html": "<b>{n}</b> hotspot(s) here<br>{lat}, {lon}<br>newest: {t} UTC<br>"
                        "confidence level: {c} (0 low · 1 nominal · 2 high)"}
-    return pdk.Deck(layers=layers, initial_view_state=view_for(bbox), tooltip=tooltip,
+    return pdk.Deck(layers=layers, initial_view_state=view_for(bbox, max_zoom), tooltip=tooltip,
                     map_style=pdk.map_styles.CARTO_DARK)

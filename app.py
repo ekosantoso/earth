@@ -144,7 +144,7 @@ if view == GLOBE:
                    f"Dark grey = no measurement. Drag to spin the globe, scroll to zoom.")
     except Exception as error:  # no CO data is not a reason to hide the globe
         co_picture, co_note = None, f"(Carbon monoxide data unavailable: {error})"
-    st.pydeck_chart(maps.globe_map(live, bbox, co_picture), height=560)
+    st.pydeck_chart(maps.globe_map(live, bbox, co_picture, co.WIDTH), height=560)
     st.caption(co_note + (f" Dots: {len(live):,} hotspots in {region['name']} (last {window} "
                           "+ today)." if live is not None else ""))
 else:
@@ -153,11 +153,13 @@ else:
     WITH_SMOKE, PHOTO, DARK = "Photo + smoke", "Photo", "Dark map"
     background = st.segmented_control("Background", [WITH_SMOKE, PHOTO, DARK],
                                       default=WITH_SMOKE)
-    pictures, photo_note = [], ""
+    pictures, photo_note, max_zoom = [], "", maps.DARK_MAP_MAX_ZOOM
     if background in (WITH_SMOKE, PHOTO):
         try:
             image, bounds, today_share = satellite.newest_photo(bbox, today_utc)
             pictures.append(maps.photo_layer(image, bounds))
+            # Stop zooming in where the photo would start to look blocky.
+            max_zoom = maps.sharp_zoom_limit(bounds, satellite.WIDTH)
             photo_note = (f" Photo: NASA satellites — {today_share:.0%} of this view was "
                           "photographed today, the rest yesterday afternoon. Grey-brown haze is "
                           "smoke; bright white is cloud.")
@@ -168,7 +170,7 @@ else:
         photo_note += (" Yellow-to-red shading = smoke/haze measured by NASA (aerosol); "
                        "no shading = clean air or not measured (clouds).")
     if live is not None:
-        st.pydeck_chart(maps.hotspot_map(live, bbox, pictures), height=520)
+        st.pydeck_chart(maps.hotspot_map(live, bbox, pictures, max_zoom), height=520)
         today_count = len(live) - len(finished)
         st.caption(f"{len(finished):,} hotspots in the last {window} + {today_count:,} today so "
                    "far (UTC; new satellite passes appear within a few hours). "
