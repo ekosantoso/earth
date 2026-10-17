@@ -37,12 +37,16 @@ def sharp_zoom_limit(bounds: list[float], width_px: int, overzoom: float = 1.0) 
     return math.log2(360 * width_px / (512 * max(east - west, 1e-6))) + overzoom
 
 
-def view_for(bbox: tuple, max_zoom: float = DARK_MAP_MAX_ZOOM) -> pdk.ViewState:
+def view_for(bbox: tuple, max_zoom: float = DARK_MAP_MAX_ZOOM,
+             zoom_out_levels: float | None = None) -> pdk.ViewState:
+    """Start view showing bbox. zoom_out_levels: how far users may zoom out from the start
+    (None = no limit), so they cannot zoom out to an empty, repeating world."""
     west, south, east, north = bbox
     span = max(east - west, north - south, 0.1)
     zoom = max(0.5, min(10, math.log2(360 / span) - 0.5, max_zoom))
+    min_zoom = None if zoom_out_levels is None else max(0.0, zoom - zoom_out_levels)
     return pdk.ViewState(longitude=(west + east) / 2, latitude=(south + north) / 2, zoom=zoom,
-                         max_zoom=max_zoom)
+                         max_zoom=max_zoom, min_zoom=min_zoom)
 
 
 def merge_spots(hotspots: pd.DataFrame) -> tuple[pd.DataFrame, str]:
@@ -168,7 +172,7 @@ def hotspot_map(hotspots: pd.DataFrame, bbox: tuple, pictures: list[pdk.Layer] |
     layers = [*(pictures or [])]
     if pictures:
         layers.append(pdk.Layer("GeoJsonLayer", _land_borders(), stroked=True, filled=False,
-                                get_line_color=[255, 255, 255, 170], line_width_min_pixels=1))
+                                get_line_color=[255, 255, 255, 110], line_width_min_pixels=0.8))
     layers += [
         pdk.Layer("PathLayer", outline, get_path="path", get_color=[255, 255, 255, 180],
                   width_min_pixels=1),
@@ -179,7 +183,7 @@ def hotspot_map(hotspots: pd.DataFrame, bbox: tuple, pictures: list[pdk.Layer] |
     if pictures:
         # map_style=None is not enough: Streamlit then adds its own CARTO basemap. The special
         # value "__MAP_STYLE__" tells Streamlit's map component to draw no basemap at all.
-        return pdk.Deck(layers=layers, initial_view_state=view_for(bbox, max_zoom),
+        return pdk.Deck(layers=layers, initial_view_state=view_for(bbox, max_zoom, 1.0),
                         tooltip=tooltip, map_provider=None, map_style=NO_BASEMAP)
     return pdk.Deck(layers=layers, initial_view_state=view_for(bbox, max_zoom), tooltip=tooltip,
                     map_style=pdk.map_styles.CARTO_DARK)

@@ -81,3 +81,23 @@ def newest_photo(bbox: tuple, today: date) -> tuple[str, list[float], float]:
             today_share = max(today_share, photographed.mean())
 
     return to_data_url(Image.fromarray(photo)), bounds, float(today_share)
+
+
+WORLD_LAT = 85.0511   # where the square web map ends (north and south)
+WORLD_WIDTH = 2048    # pixels for the whole-world background
+
+
+@st.cache_data(ttl=30 * 24 * 3600, show_spinner=False)
+def blue_marble() -> tuple[str, list[float]]:
+    """NASA's "Blue Marble": a cloud-free picture of the whole Earth, used as the background
+    everywhere outside today's sharp photo (like Google Earth when zoomed out)."""
+    query = urlencode({
+        "SERVICE": "WMS", "REQUEST": "GetMap", "VERSION": "1.3.0",
+        "LAYERS": "BlueMarble_NextGeneration", "STYLES": "", "CRS": "EPSG:3857",
+        "BBOX": f"{-EARTH_HALF_WIDTH_M},{-EARTH_HALF_WIDTH_M},{EARTH_HALF_WIDTH_M},{EARTH_HALF_WIDTH_M}",
+        "WIDTH": WORLD_WIDTH, "HEIGHT": WORLD_WIDTH, "FORMAT": "image/jpeg",
+    })
+    response = requests.get(f"{WMS_URL}?{query}", timeout=120)
+    response.raise_for_status()
+    picture = Image.open(io.BytesIO(response.content)).convert("RGB")
+    return to_data_url(picture), [-180.0, -WORLD_LAT, 180.0, WORLD_LAT]

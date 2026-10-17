@@ -156,6 +156,9 @@ else:
     pictures, photo_note, max_zoom = [], "", maps.DARK_MAP_MAX_ZOOM
     if background in (WITH_SMOKE, PHOTO):
         try:
+            # Bottom: NASA's cloud-free Blue Marble of the whole Earth, so there is never an
+            # empty background; on top: today's sharp photo of the area around the place.
+            pictures.append(maps.photo_layer(*satellite.blue_marble()))
             image, bounds, today_share = satellite.newest_photo(bbox, today_utc)
             pictures.append(maps.photo_layer(image, bounds))
             # Stop zooming in where the photo would start to look blocky.

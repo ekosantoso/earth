@@ -11,6 +11,7 @@ Space Apps requires every source to be cited, including open-source libraries.
 | NASA FIRMS — VIIRS 375 m active fire detections (Suomi NPP), Standard Processing, Country Yearly Summary | Historical record 2012–2025, calibration | NASA FIRMS, https://firms.modaps.eosdis.nasa.gov/country/ — VIIRS (S-NPP) I-Band 375 m Active Fire. *(add DOI from the FIRMS citation page)* |
 | NASA FIRMS — Near Real-Time API (VIIRS NOAA-20, VIIRS NOAA-21, MODIS) | Live Map | https://firms.modaps.eosdis.nasa.gov/api/area/ |
 | NASA GIBS — MODIS Terra and VIIRS NOAA-20 Corrected Reflectance (True Color) | Satellite photo behind the live map (smoke) | https://nasa-gibs.github.io/gibs-api-docs/ |
+| NASA GIBS — Blue Marble: Next Generation (cloud-free world mosaic) | Whole-world background of the flat map | https://nasa-gibs.github.io/gibs-api-docs/ |
 | NASA GIBS — MODIS Terra/Aqua Aerosol Optical Depth 3 km | Smoke/haze sentence and smoke layer | https://nasa-gibs.github.io/gibs-api-docs/ |
 | NASA GIBS — AIRS (Aqua) Carbon Monoxide 500 hPa, Level 2 Day/Night | Globe 3D: carbon monoxide (smoke gas) around the Earth | https://nasa-gibs.github.io/gibs-api-docs/ |
 
