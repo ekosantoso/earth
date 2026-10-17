@@ -48,56 +48,56 @@ def frame(bbox: tuple) -> list[float]:
             min(east + pad_x, 180.0), min(north + pad_y, MAX_LAT)]
 
 
-def _download(layer: str, day: date, bounds: list[float]) -> np.ndarray:
+BLUE_MARBLE = "BlueMarble_NextGeneration"   # NASA's cloud-free picture of the whole Earth
+WORLD = [-180.0, -85.0511, 180.0, 85.0511]   # where the square web map ends
+WORLD_WIDTH = 2048                           # pixels for the whole-world background
+
+
+def _download(layer: str, day: date | None, bounds: list[float], width: int) -> np.ndarray:
     west, south, east, north = bounds
     (x0, y0), (x1, y1) = _mercator(west, south), _mercator(east, north)
-    height = max(200, min(WIDTH, round(WIDTH * (y1 - y0) / (x1 - x0))))
-    url = WMS_URL + "?" + urlencode({
+    height = max(200, min(width, round(width * (y1 - y0) / (x1 - x0))))
+    query = {
         "SERVICE": "WMS", "REQUEST": "GetMap", "VERSION": "1.3.0", "LAYERS": layer,
         "STYLES": "", "CRS": "EPSG:3857", "BBOX": f"{x0},{y0},{x1},{y1}",
-        "WIDTH": WIDTH, "HEIGHT": height, "FORMAT": "image/jpeg", "TIME": day.isoformat(),
-    })
-    response = requests.get(url, timeout=90)
+        "WIDTH": width, "HEIGHT": height, "FORMAT": "image/jpeg",
+    }
+    if day is not None:          # Blue Marble has no date
+        query["TIME"] = day.isoformat()
+    response = requests.get(WMS_URL + "?" + urlencode(query), timeout=120)
     response.raise_for_status()
     return np.asarray(Image.open(io.BytesIO(response.content)).convert("RGB"))
 
 
+def _newest(bounds: list[float], today: date, width: int) -> tuple[str, float]:
+    """Paste the newest satellite pixels over each other, oldest first:
+    Blue Marble (cloud-free, never empty) -> yesterday afternoon -> today morning ->
+    today afternoon. The world background and the sharp photo are made exactly the same way,
+    so clouds and smoke continue seamlessly from one into the other."""
+    passes = [(BLUE_MARBLE, None), (AFTERNOON, today - timedelta(days=1)),
+              (MORNING, today), (AFTERNOON, today)]
+    with ThreadPoolExecutor(max_workers=len(passes)) as pool:   # download all at once
+        pictures = list(pool.map(lambda p: _download(p[0], p[1], bounds, width), passes))
+
+    photo, today_share = pictures[0].copy(), 0.0
+    for picture in pictures[1:]:
+        photographed = picture.max(axis=2) > BLACK
+        photo[photographed] = picture[photographed]
+        if picture is not pictures[1]:
+            today_share = max(today_share, photographed.mean())
+    return to_data_url(Image.fromarray(photo)), float(today_share)
+
+
 @st.cache_data(ttl=3600, show_spinner="Getting the newest NASA satellite photo…")
 def newest_photo(bbox: tuple, today: date) -> tuple[str, list[float], float]:
-    """Returns (image as a data URL, its bounds, share of the area photographed today)."""
+    """Sharp photo of the area around the place: (data URL, bounds, share photographed today)."""
     bounds = frame(bbox)
-    # Oldest first: each newer photo is pasted over the older ones where it has pixels.
-    passes = [(AFTERNOON, today - timedelta(days=1)), (MORNING, today), (AFTERNOON, today)]
-    with ThreadPoolExecutor(max_workers=len(passes)) as pool:   # download all 3 at once
-        pictures = list(pool.map(lambda p: _download(p[0], p[1], bounds), passes))
-
-    photo, today_share = None, 0.0
-    for picture in pictures:
-        photographed = picture.max(axis=2) > BLACK
-        if photo is None:
-            photo = picture.copy()
-        else:
-            photo[photographed] = picture[photographed]
-            today_share = max(today_share, photographed.mean())
-
-    return to_data_url(Image.fromarray(photo)), bounds, float(today_share)
+    image, today_share = _newest(bounds, today, WIDTH)
+    return image, bounds, today_share
 
 
-WORLD_LAT = 85.0511   # where the square web map ends (north and south)
-WORLD_WIDTH = 2048    # pixels for the whole-world background
-
-
-@st.cache_data(ttl=30 * 24 * 3600, show_spinner=False)
-def blue_marble() -> tuple[str, list[float]]:
-    """NASA's "Blue Marble": a cloud-free picture of the whole Earth, used as the background
-    everywhere outside today's sharp photo (like Google Earth when zoomed out)."""
-    query = urlencode({
-        "SERVICE": "WMS", "REQUEST": "GetMap", "VERSION": "1.3.0",
-        "LAYERS": "BlueMarble_NextGeneration", "STYLES": "", "CRS": "EPSG:3857",
-        "BBOX": f"{-EARTH_HALF_WIDTH_M},{-EARTH_HALF_WIDTH_M},{EARTH_HALF_WIDTH_M},{EARTH_HALF_WIDTH_M}",
-        "WIDTH": WORLD_WIDTH, "HEIGHT": WORLD_WIDTH, "FORMAT": "image/jpeg",
-    })
-    response = requests.get(f"{WMS_URL}?{query}", timeout=120)
-    response.raise_for_status()
-    picture = Image.open(io.BytesIO(response.content)).convert("RGB")
-    return to_data_url(picture), [-180.0, -WORLD_LAT, 180.0, WORLD_LAT]
+@st.cache_data(ttl=3600, show_spinner="Getting the newest NASA satellite photo of the world…")
+def world_photo(today: date) -> tuple[str, list[float]]:
+    """The same newest photo for the whole world, less sharp, used as the map background."""
+    image, _ = _newest(WORLD, today, WORLD_WIDTH)
+    return image, WORLD
